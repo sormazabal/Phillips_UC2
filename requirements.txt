@@ -1,0 +1,12 @@
+torch
+torchvision
+pytorch-lightning
+transformers
+huggingface_hub
+timm
+albumentations
+wandb
+numpy
+opencv-python
+pillow
+PyYAML
