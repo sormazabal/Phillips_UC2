@@ -1,5 +1,5 @@
 model:
-  backbone: "nvidia/mit-b3"
+  backbone: "nvidia/mit-b5"
   # timm/HF-Hub alternative backbones (any model with a 4-stage feature pyramid):
   #   backbone: "timm:resnet50"                 # CNN pyramid, matches decoder design (4/8/16/32 strides)
   #   backbone: "timm:convnext_base.fb_in22k"
