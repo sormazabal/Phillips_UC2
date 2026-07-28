@@ -81,20 +81,35 @@ class HFDualNet(nn.Module):
         backbone_name: str = "nvidia/mit-b3",
         freeze_backbone: bool = True,
         num_seg_classes: int = 1,
-        num_det_classes: int = 1
+        num_det_classes: int = 1,
+        backbone_kwargs: dict = None
     ):
         super().__init__()
         self.backbone_name = backbone_name
-        
+        self._is_timm = backbone_name.startswith("timm:")
+
         # Instantiate pre-trained backbone
-        try:
-            self.backbone = SegformerModel.from_pretrained(backbone_name)
-            in_channels_list = self.backbone.config.hidden_sizes
-        except Exception:
-            # Fallback for general HF vision backbones
-            config = AutoConfig.from_pretrained(backbone_name, output_hidden_states=True)
-            self.backbone = AutoModel.from_pretrained(backbone_name, config=config)
-            in_channels_list = getattr(config, "hidden_sizes", [64, 128, 320, 512])
+        if self._is_timm:
+            import timm
+            # ponytail: features_only gives the 4 NCHW pyramid maps the decoder wants.
+            # out_indices pinned to the last 4 in case a model emits more stages.
+            self.backbone = timm.create_model(
+                backbone_name[len("timm:"):],
+                pretrained=True,
+                features_only=True,
+                out_indices=(-4, -3, -2, -1),
+                **(backbone_kwargs or {}),
+            )
+            in_channels_list = self.backbone.feature_info.channels()
+        else:
+            try:
+                self.backbone = SegformerModel.from_pretrained(backbone_name)
+                in_channels_list = self.backbone.config.hidden_sizes
+            except Exception:
+                # Fallback for general HF vision backbones
+                config = AutoConfig.from_pretrained(backbone_name, output_hidden_states=True)
+                self.backbone = AutoModel.from_pretrained(backbone_name, config=config)
+                in_channels_list = getattr(config, "hidden_sizes", [64, 128, 320, 512])
 
         # Segmentation Head
         self.seg_head = SegFormerMLPDecoder(
@@ -121,20 +136,24 @@ class HFDualNet(nn.Module):
         # x shape: [B, 3, H, W]
         input_size = x.shape[2:]
 
-        # Forward through Hugging Face backbone
-        outputs = self.backbone(x, output_hidden_states=True)
-        
-        # Extract hidden states (multi-scale feature maps)
-        if hasattr(outputs, "hidden_states") and outputs.hidden_states is not None:
-            hidden_states = outputs.hidden_states
-        elif hasattr(outputs, "feature_maps") and outputs.feature_maps is not None:
-            hidden_states = outputs.feature_maps
+        if self._is_timm:
+            # timm features_only backbones already return a list of NCHW maps.
+            hidden_states = self.backbone(x)
         else:
-            hidden_states = outputs[0]
+            # Forward through Hugging Face backbone
+            outputs = self.backbone(x, output_hidden_states=True)
 
-        # Ensure hidden_states is a tuple/list of feature maps
-        if not isinstance(hidden_states, (tuple, list)):
-            hidden_states = [hidden_states]
+            # Extract hidden states (multi-scale feature maps)
+            if hasattr(outputs, "hidden_states") and outputs.hidden_states is not None:
+                hidden_states = outputs.hidden_states
+            elif hasattr(outputs, "feature_maps") and outputs.feature_maps is not None:
+                hidden_states = outputs.feature_maps
+            else:
+                hidden_states = outputs[0]
+
+            # Ensure hidden_states is a tuple/list of feature maps
+            if not isinstance(hidden_states, (tuple, list)):
+                hidden_states = [hidden_states]
 
         # Segmentation Head
         seg_logits_low = self.seg_head(hidden_states)
@@ -147,3 +166,11 @@ class HFDualNet(nn.Module):
             "seg_logits": seg_logits,
             "det_out": det_out
         }
+
+
+if __name__ == "__main__":
+    m = HFDualNet(backbone_name="timm:resnet18", freeze_backbone=False)
+    out = m(torch.randn(2, 3, 512, 512))
+    assert out["seg_logits"].shape == (2, 1, 512, 512), out["seg_logits"].shape
+    assert out["det_out"].shape == (2, 6, 7, 7), out["det_out"].shape
+    print("ok")

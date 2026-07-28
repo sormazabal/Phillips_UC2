@@ -24,7 +24,8 @@ class ArcadeLightningModule(pl.LightningModule):
             backbone_name=model_cfg.get("backbone", "nvidia/mit-b3"),
             freeze_backbone=model_cfg.get("freeze_backbone", True),
             num_seg_classes=model_cfg.get("num_seg_classes", 1),
-            num_det_classes=model_cfg.get("num_det_classes", 1)
+            num_det_classes=model_cfg.get("num_det_classes", 1),
+            backbone_kwargs=model_cfg.get("backbone_kwargs")
         )
 
         # Loss Function
