@@ -1,9 +1,12 @@
 model:
   backbone: "nvidia/mit-b3"
-  # timm/HF-Hub alternative (TransUNet-style R50+ViT-B/16 hybrid encoder):
-  #   backbone: "timm:vit_base_r50_s16_384.orig_in21k_ft_in1k"
-  #   backbone_kwargs: {img_size: 512}
-  # or plain: "timm:convnext_base.fb_in22k"
+  # timm/HF-Hub alternative backbones (any model with a 4-stage feature pyramid):
+  #   backbone: "timm:resnet50"                 # CNN pyramid, matches decoder design (4/8/16/32 strides)
+  #   backbone: "timm:convnext_base.fb_in22k"
+  # NOTE: "timm:vit_base_r50_s16_384.orig_in21k_ft_in1k" (TransUNet's R50+ViT-B/16 hybrid) loads
+  # fine but its features_only output is 4 identical stride-16 maps (pure ViT tokens, no spatial
+  # pyramid) -- the multi-scale decoder fusion becomes a no-op. Use a plain CNN/hierarchical
+  # timm model instead unless you also rewrite the decoder for single-scale ViT features.
   backbone_kwargs: null
   freeze_backbone: true
   num_seg_classes: 1
