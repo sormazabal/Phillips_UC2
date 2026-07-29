@@ -6,6 +6,13 @@ This pipeline performs a dual medical imaging task simultaneously:
 1. **Semantic Segmentation:** Complete coronary vessel tree segmentation.
 2. **Object Detection & Localization:** Localizing and classifying coronary stenosis (narrowed arteries) for interventional balloon/stent target planning.
 
+## Summary:
+
+A fine-tuned SegFormer backbone jointly segments the full coronary vessel tree and detects/localizes stenosis with severity scoring, from one X-ray angiography frame.
+
+## Client pain points:
+
+## Potential Client: 
 ---
 
 ## 🏗️ Model Architecture
@@ -190,6 +197,21 @@ Zero-shot example
 
 
 Zero-shot numbers will be low (the task heads are untrained) — this is a baseline to compare against once the model has been fine-tuned. Add `--output_json results.json` to save the report.
+
+---
+
+## 🖥️ Interactive Viewer
+
+A Streamlit app for loading a checkpoint, running inference, and visualizing results in the browser:
+- **Segmentation:** pixel-level vessel mask overlay + boundary contours.
+- **Localization:** stenosis bounding boxes, center landmarks, severity/confidence labels.
+
+```bash
+streamlit run app.py
+```
+
+Upload an XCA image (or point it at a path under `Arcade/`), pick a checkpoint from `checkpoints/`
+(or run zero-shot), and adjust the detection/mask thresholds from the sidebar.
 
 ---
 

@@ -39,15 +39,9 @@ def preprocess_image(image_path: str, img_size: tuple = (512, 512)):
     return input_tensor, (orig_h, orig_w)
 
 
-def run_inference(
-    image_path: str,
-    checkpoint_path: str = None,
-    conf_threshold: float = 0.5,
-    backbone_name: str = "nvidia/mit-b3"
-):
+def load_model(checkpoint_path: str = None, backbone_name: str = "nvidia/mit-b3"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load model
     if checkpoint_path and os.path.exists(checkpoint_path):
         lightning_model = ArcadeLightningModule.load_from_checkpoint(checkpoint_path)
         model = lightning_model.model
@@ -56,15 +50,10 @@ def run_inference(
 
     model.to(device)
     model.eval()
+    return model, device
 
-    # Preprocess
-    input_tensor, (orig_h, orig_w) = preprocess_image(image_path)
-    input_tensor = input_tensor.to(device)
 
-    with torch.no_grad():
-        outputs = model(input_tensor)
-
-    det_out = outputs["det_out"]  # [1, 6, 7, 7]
+def decode_detections(det_out, orig_h: int, orig_w: int, conf_threshold: float = 0.5):
     B, C, H, W = det_out.shape
     det_out = det_out.view(B, 6, H, W)
 
@@ -113,6 +102,26 @@ def run_inference(
             "detection_confidence": round(confidence, 4)
         })
         instance_count += 1
+
+    return devices
+
+
+def run_inference(
+    image_path: str,
+    checkpoint_path: str = None,
+    conf_threshold: float = 0.5,
+    backbone_name: str = "nvidia/mit-b3"
+):
+    model, device = load_model(checkpoint_path, backbone_name)
+
+    # Preprocess
+    input_tensor, (orig_h, orig_w) = preprocess_image(image_path)
+    input_tensor = input_tensor.to(device)
+
+    with torch.no_grad():
+        outputs = model(input_tensor)
+
+    devices = decode_detections(outputs["det_out"], orig_h, orig_w, conf_threshold)
 
     # Format JSON output according to target schema
     frame_id = os.path.splitext(os.path.basename(image_path))[0]

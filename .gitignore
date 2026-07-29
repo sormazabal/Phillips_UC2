@@ -51,3 +51,6 @@ wandb/
 .DS_Store
 Thumbs.db
 .env
+
+# Credentials
+.kaggle/
