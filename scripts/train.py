@@ -17,6 +17,7 @@ from src.models.lightning_module import ArcadeLightningModule
 def main():
     parser = argparse.ArgumentParser(description="Train Arcade XCA Dual-Task Model")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    parser.add_argument("--resume", type=str, default=None, help="Path to .ckpt to resume training from")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -39,11 +40,14 @@ def main():
         img_size=tuple(config.get("model", {}).get("img_size", [512, 512]))
     )
 
+    num_workers = data_cfg.get("num_workers", 4)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=data_cfg.get("batch_size", 8),
         shuffle=True,
-        num_workers=data_cfg.get("num_workers", 4),
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
         collate_fn=collate_fn
     )
 
@@ -51,7 +55,8 @@ def main():
         val_dataset,
         batch_size=data_cfg.get("batch_size", 8),
         shuffle=False,
-        num_workers=data_cfg.get("num_workers", 4),
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
         collate_fn=collate_fn
     )
 
@@ -61,7 +66,9 @@ def main():
     # Logger & Callbacks
     logger = WandbLogger(
         project=wandb_cfg.get("project", "arcade-xca-dual-task"),
-        entity=wandb_cfg.get("entity", None)
+        entity=wandb_cfg.get("entity", None),
+        id=wandb_cfg.get("run_id", None),
+        resume="allow"
     )
 
     checkpoint_callback = ModelCheckpoint(
@@ -86,7 +93,7 @@ def main():
     )
 
     # Train model
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=args.resume)
 
 
 if __name__ == "__main__":

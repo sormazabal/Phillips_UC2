@@ -29,3 +29,4 @@ training:
 wandb:
   project: "arcade-xca-dual-task"
   entity: null
+  run_id: "1ywutg7r"
