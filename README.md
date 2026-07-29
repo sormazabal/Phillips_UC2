@@ -75,6 +75,30 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### 3. Kaggle API Setup (Windows / PowerShell)
+
+Generate an API token at [kaggle.com/settings/api](https://www.kaggle.com/settings/api) ("Generate New Token"), then set it for your PowerShell session:
+
+```powershell
+$env:KAGGLE_API_TOKEN = "your_token_here"
+```
+
+This only lasts for the current terminal session. To persist it across sessions/reboots:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("KAGGLE_API_TOKEN", "your_token_here", "User")
+```
+
+(open a new terminal for this to take effect)
+
+Verify it works with:
+
+```powershell
+kaggle datasets list
+```
+
+**Never commit your token.** Don't put it in `.env`, `.gitignore`d or not — treat any token that's touched a repo folder as compromised and regenerate it.
+
 ---
 
 ## ⚙️ Configuration (`config.yaml`)
