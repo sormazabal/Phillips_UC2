@@ -3,6 +3,9 @@ import sys
 import json
 import argparse
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import cv2
 import torch
 import albumentations as A

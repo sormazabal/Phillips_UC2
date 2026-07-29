@@ -1,6 +1,6 @@
 # ARCADE XCA Dual-Task Medical Imaging Pipeline
 
-Production-ready PyTorch & Hugging Face machine learning repository for processing X-ray Coronary Angiography (XCA) images from the ARCADE dataset.
+PyTorch & Hugging Face machine learning repository for processing X-ray Coronary Angiography (XCA) images from the ARCADE dataset.
 
 This pipeline performs a dual medical imaging task simultaneously:
 1. **Semantic Segmentation:** Complete coronary vessel tree segmentation.
@@ -28,7 +28,8 @@ Rather than training a model from scratch, this repository leverages pre-trained
 ├── README.md
 ├── scripts/
 │   ├── train.py          # PyTorch Lightning training script with WandB logging
-│   └── inference.py      # Inference script formatted to target JSON schema
+│   ├── inference.py      # Inference script formatted to target JSON schema
+│   └── evaluate.py       # Dataset-wide metrics (Dice, detection P/R/F1); zero-shot or from a checkpoint
 └── src/
     ├── __init__.py
     ├── data/
@@ -121,7 +122,7 @@ The trainer will automatically:
 Run inference on any XCA image:
 
 ```bash
-python scripts/inference.py --image_path path/to/xca_image.png --checkpoint path/to/best_checkpoint.ckpt --output_json output.json
+python scripts/inference.py --image_path Arcade\stenosis\test\images\1.png --checkpoint path/to/best_checkpoint.ckpt --output_json output.json
 ```
 
 ### Strict Output JSON Schema
@@ -143,6 +144,52 @@ The inference script outputs structured predictions:
   ]
 }
 ```
+
+---
+
+## 🧪 Zero-Shot Evaluation & Metrics
+
+To measure how the pre-trained backbone performs **without any fine-tuning** (frozen `nvidia/mit-b3`/`mit-b5` backbone + randomly initialized task heads), run `evaluate.py` on the test split with no `--checkpoint`:
+
+```bash
+python scripts/evaluate.py --config config.yaml --split test
+```
+
+Once you have a trained checkpoint, pass it in to get post-training metrics on the same split:
+
+```bash
+python scripts/evaluate.py --config config.yaml --split test --checkpoint path/to/best_checkpoint.ckpt
+```
+
+This reports, over the whole split:
+
+- **`mean_dice_score`** — average segmentation Dice score across all test images.
+- **`detection_precision` / `detection_recall` / `detection_f1`** — stenosis detection quality, matching each ground-truth box to the model's prediction in the same grid cell (IoU ≥ 0.3, confidence ≥ `--conf_thresh`).
+
+```json
+{
+  "split": "test",
+  "num_images": 300,
+  "mean_dice_score": 0.052,
+  "detection_precision": 0.0,
+  "detection_recall": 0.0,
+  "detection_f1": 0.0,
+  "conf_threshold": 0.5
+}
+```
+Zero-shot example
+```
+  "split": "test",
+  "num_images": 300,
+  "mean_dice_score": 0.060636836380387346,
+  "detection_precision": 0.0,
+  "detection_recall": 0.0,
+  "detection_f1": 0.0,
+  "conf_threshold": 0.5
+  ``` 
+
+
+Zero-shot numbers will be low (the task heads are untrained) — this is a baseline to compare against once the model has been fine-tuned. Add `--output_json results.json` to save the report.
 
 ---
 
