@@ -1,0 +1,10 @@
+project: kaggle
+kernel_slug: sofiazowormazabal/kaggle
+code_file: colab_main.ipynb
+accelerator: none
+internet: false
+privacy: private
+datasets: []
+competitions: []
+outputs:
+  download_to: .kaggle-outputs/
