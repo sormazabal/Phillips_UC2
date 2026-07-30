@@ -191,6 +191,7 @@ Once you have a trained checkpoint, pass it in to get post-training metrics on t
 ```bash
 python scripts/evaluate.py --config config.yaml --split test --checkpoint path/to/best_checkpoint.ckpt
 ```
+python scripts/evaluate.py --config config.yaml --split test --checkpoint checkpoints\last_46.ckpt
 
 This reports, over the whole split:
 
