@@ -12,7 +12,13 @@ from scripts.inference import decode_detections, load_model, preprocess_image
 
 st.set_page_config(page_title="ARCADE XCA Dual-Task Viewer", layout="wide")
 st.title("ARCADE XCA Dual-Task Viewer")
-st.caption("Coronary vessel segmentation + stenosis localisation")
+st.caption("Coronary vessel segmentation + device/stenosis localisation")
+
+# ponytail: fixed BGR palette indexed by class, no colormap dependency
+PALETTE = [
+    (0, 255, 0), (0, 165, 255), (255, 0, 0), (0, 255, 255),
+    (255, 0, 255), (255, 255, 0), (128, 0, 255), (0, 128, 255),
+]
 
 with st.sidebar:
     st.header("Model")
@@ -27,7 +33,7 @@ with st.sidebar:
     st.header("Overlays")
     show_mask = st.checkbox("Show segmentation mask", value=True)
     show_contours = st.checkbox("Show vessel boundaries", value=True)
-    show_boxes = st.checkbox("Show stenosis boxes/landmarks", value=True)
+    show_boxes = st.checkbox("Show device/stenosis boxes/landmarks", value=True)
 
 
 @st.cache_resource
@@ -71,7 +77,7 @@ with torch.no_grad():
 seg_prob = torch.sigmoid(outputs["seg_logits"])[0, 0].cpu().numpy()  # [H, W] at orig_h/orig_w
 mask = (seg_prob > mask_thresh).astype(np.uint8)
 
-devices = decode_detections(outputs["det_out"], orig_h, orig_w, conf_thresh)
+devices = decode_detections(outputs["det_out"], orig_h, orig_w, conf_thresh, model.det_classes)
 
 overlay = raw_image.copy()
 
@@ -88,11 +94,14 @@ if show_boxes:
     for d in devices:
         x1, y1, x2, y2 = [int(round(v)) for v in d["bounding_box"]]
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.circle(overlay, (cx, cy), 4, (255, 255, 0), -1)
-        label = f"{d['severity']} {d['detection_confidence']:.2f}"
+        class_idx = model.det_classes.index(d["device_class"]) if d["device_class"] in model.det_classes else 0
+        color = PALETTE[class_idx % len(PALETTE)]
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+        cv2.circle(overlay, (cx, cy), 4, color, -1)
+        state = d.get("severity") or d.get("device_state")
+        label = f"{d['device_class']}" + (f" {state}" if state else "") + f" {d['detection_confidence']:.2f}"
         cv2.putText(overlay, label, (x1, max(0, y1 - 6)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
 col1, col2 = st.columns(2)
 with col1:

@@ -86,6 +86,7 @@ class HFDualNet(nn.Module):
     ):
         super().__init__()
         self.backbone_name = backbone_name
+        self.num_det_classes = num_det_classes
         self._is_timm = backbone_name.startswith("timm:")
 
         # Instantiate pre-trained backbone
@@ -173,4 +174,8 @@ if __name__ == "__main__":
     out = m(torch.randn(2, 3, 512, 512))
     assert out["seg_logits"].shape == (2, 1, 512, 512), out["seg_logits"].shape
     assert out["det_out"].shape == (2, 6, 7, 7), out["det_out"].shape
+
+    m3 = HFDualNet(backbone_name="timm:resnet18", freeze_backbone=False, num_det_classes=3)
+    out3 = m3(torch.randn(2, 3, 512, 512))
+    assert out3["det_out"].shape == (2, 4 + 1 + 3, 7, 7), out3["det_out"].shape
     print("ok")

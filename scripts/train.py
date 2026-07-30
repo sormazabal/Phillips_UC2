@@ -27,17 +27,25 @@ def main():
     train_cfg = config.get("training", {})
     wandb_cfg = config.get("wandb", {})
 
+    model_cfg = config.get("model", {})
+    det_classes = model_cfg.get("det_classes", ["coronary_stenosis"])
+    det_categories = det_classes if len(det_classes) > 1 else None
+
     # Datasets & DataLoaders
     train_dataset = ArcadeDataset(
         data_dir=data_cfg.get("data_dir", "./Arcade"),
         split="train",
-        img_size=tuple(config.get("model", {}).get("img_size", [512, 512]))
+        img_size=tuple(model_cfg.get("img_size", [512, 512])),
+        det_ann_subset=data_cfg.get("det_ann_subset", "stenosis"),
+        det_categories=det_categories,
     )
 
     val_dataset = ArcadeDataset(
         data_dir=data_cfg.get("data_dir", "./Arcade"),
         split="val",
-        img_size=tuple(config.get("model", {}).get("img_size", [512, 512]))
+        img_size=tuple(model_cfg.get("img_size", [512, 512])),
+        det_ann_subset=data_cfg.get("det_ann_subset", "stenosis"),
+        det_categories=det_categories,
     )
 
     num_workers = data_cfg.get("num_workers", 4)
@@ -74,7 +82,7 @@ def main():
     checkpoint_callback = ModelCheckpoint(
         monitor="val/dice_score",
         mode="max",
-        filename="best-arcade-model-{epoch:02d}-{val_dice_score:.4f}",
+        filename="best-arcade-model-{epoch:02d}-{val/dice_score:.4f}",
         save_top_k=1
     )
 

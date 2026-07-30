@@ -55,31 +55,49 @@ class ArcadeDataset(Dataset):
     PyTorch Dataset for ARCADE XCA dataset.
     Combines vessel segmentation (from syntax annotations) and stenosis object detection (from stenosis annotations).
     """
-    def __init__(self, data_dir: str, split: str = "train", img_size: tuple = (512, 512), transforms=None):
+    def __init__(
+        self,
+        data_dir: str,
+        split: str = "train",
+        img_size: tuple = (512, 512),
+        transforms=None,
+        det_ann_subset: str = "stenosis",
+        det_categories: list = None,
+        img_dir: str = None,
+        seg_ann_file: str = None,
+        det_ann_file: str = None,
+    ):
         super().__init__()
         self.data_dir = data_dir
         self.split = split
         self.img_size = img_size
         self.transforms = transforms if transforms is not None else get_transforms(split, img_size)
 
-        # Paths
-        syntax_img_dir = os.path.join(data_dir, "syntax", split, "images")
-        syntax_ann_file = os.path.join(data_dir, "syntax", split, "annotations", f"{split}.json")
-
-        stenosis_ann_file = os.path.join(data_dir, "stenosis", split, "annotations", f"{split}.json")
+        # Paths (overridable for non-ARCADE COCO sources; defaults preserve ARCADE layout)
+        syntax_img_dir = img_dir or os.path.join(data_dir, "syntax", split, "images")
+        syntax_ann_file = seg_ann_file or os.path.join(data_dir, "syntax", split, "annotations", f"{split}.json")
+        det_ann_file = det_ann_file or os.path.join(data_dir, det_ann_subset, split, "annotations", f"{split}.json")
 
         self.img_dir = syntax_img_dir
 
-        # Load syntax annotations (Vessel tree segmentation)
+        # Load segmentation annotations (vessel tree, from the syntax subset)
         with open(syntax_ann_file, "r") as f:
             syntax_coco = json.load(f)
 
-        # Load stenosis annotations (Stenosis object detection)
-        if os.path.exists(stenosis_ann_file):
-            with open(stenosis_ann_file, "r") as f:
-                stenosis_coco = json.load(f)
+        # Load detection annotations (from det_ann_subset, e.g. "stenosis" or "syntax")
+        if os.path.exists(det_ann_file):
+            with open(det_ann_file, "r") as f:
+                det_coco = json.load(f)
         else:
-            stenosis_coco = {"annotations": []}
+            det_coco = {"annotations": [], "categories": []}
+
+        # Map COCO category_id -> contiguous label (1..K). If det_categories is not
+        # given, every detection annotation is Class 1 (today's single-class behavior).
+        if det_categories:
+            name_to_id = {c["name"]: c["id"] for c in det_coco.get("categories", [])}
+            self.cat2label = {name_to_id[name]: i + 1 for i, name in enumerate(det_categories) if name in name_to_id}
+        else:
+            self.cat2label = None
 
         # Index images by image_id
         self.images = {img["id"]: img for img in syntax_coco.get("images", [])}
@@ -93,9 +111,9 @@ class ArcadeDataset(Dataset):
                 self.seg_anns[img_id] = []
             self.seg_anns[img_id].append(ann)
 
-        # Group stenosis detection annotations by image_id
+        # Group detection annotations by image_id
         self.det_anns = {}
-        for ann in stenosis_coco.get("annotations", []):
+        for ann in det_coco.get("annotations", []):
             img_id = ann["image_id"]
             if img_id not in self.det_anns:
                 self.det_anns[img_id] = []
@@ -144,6 +162,13 @@ class ArcadeDataset(Dataset):
         if img_id in self.det_anns:
             for ann in self.det_anns[img_id]:
                 if "bbox" in ann:
+                    if self.cat2label is not None:
+                        label = self.cat2label.get(ann["category_id"])
+                        if label is None:
+                            continue  # category not in det_categories, skip annotation
+                    else:
+                        label = 1
+
                     x, y, w, h = ann["bbox"]
                     x_min = max(0, x)
                     y_min = max(0, y)
@@ -153,7 +178,7 @@ class ArcadeDataset(Dataset):
                     # Ensure valid box dimensions
                     if x_max > x_min and y_max > y_min:
                         bboxes.append([x_min, y_min, x_max, y_max])
-                        bbox_labels.append(1)  # Class 1: coronary_stenosis
+                        bbox_labels.append(label)
 
         # Apply Albumentations
         transformed = self.transforms(

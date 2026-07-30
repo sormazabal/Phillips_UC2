@@ -19,12 +19,15 @@ class ArcadeLightningModule(pl.LightningModule):
         model_cfg = config.get("model", {})
         train_cfg = config.get("training", {})
 
+        det_classes = model_cfg.get("det_classes", ["coronary_stenosis"])
+        img_size = model_cfg.get("img_size", [512, 512])
+
         # Dual-Head Model
         self.model = HFDualNet(
             backbone_name=model_cfg.get("backbone", "nvidia/mit-b3"),
             freeze_backbone=model_cfg.get("freeze_backbone", True),
             num_seg_classes=model_cfg.get("num_seg_classes", 1),
-            num_det_classes=model_cfg.get("num_det_classes", 1),
+            num_det_classes=len(det_classes),
             backbone_kwargs=model_cfg.get("backbone_kwargs")
         )
 
@@ -32,7 +35,10 @@ class ArcadeLightningModule(pl.LightningModule):
         self.loss_fn = CombinedDualLoss(
             lambda_seg=train_cfg.get("lambda_seg", 1.0),
             lambda_det=train_cfg.get("lambda_det", 1.0),
-            lambda_cls=train_cfg.get("lambda_cls", 1.0)
+            lambda_cls=train_cfg.get("lambda_cls", 1.0),
+            lambda_conf=train_cfg.get("lambda_conf", 1.0),
+            num_classes=len(det_classes),
+            img_size=float(img_size[1]),
         )
 
     def forward(self, x):
@@ -62,6 +68,7 @@ class ArcadeLightningModule(pl.LightningModule):
         self.log("train/total_loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log("train/seg_loss", losses["seg_loss"], on_step=True, on_epoch=True)
         self.log("train/bbox_reg_loss", losses["bbox_reg_loss"], on_step=True, on_epoch=True)
+        self.log("train/bbox_conf_loss", losses["bbox_conf_loss"], on_step=True, on_epoch=True)
         self.log("train/bbox_cls_loss", losses["bbox_cls_loss"], on_step=True, on_epoch=True)
         self.log("train/dice_score", seg_dice, on_step=True, on_epoch=True, prog_bar=True)
 
@@ -83,6 +90,7 @@ class ArcadeLightningModule(pl.LightningModule):
         self.log("val/total_loss", total_loss, on_epoch=True, prog_bar=True)
         self.log("val/seg_loss", losses["seg_loss"], on_epoch=True)
         self.log("val/bbox_reg_loss", losses["bbox_reg_loss"], on_epoch=True)
+        self.log("val/bbox_conf_loss", losses["bbox_conf_loss"], on_epoch=True)
         self.log("val/bbox_cls_loss", losses["bbox_cls_loss"], on_epoch=True)
         self.log("val/dice_score", seg_dice, on_epoch=True, prog_bar=True)
 

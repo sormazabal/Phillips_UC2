@@ -10,11 +10,12 @@ model:
   backbone_kwargs: null
   freeze_backbone: true
   num_seg_classes: 1
-  num_det_classes: 1
+  det_classes: ["coronary_stenosis"]   # num_det_classes = len(det_classes)
   img_size: [512, 512]
 
 data:
   data_dir: "./Arcade"
+  det_ann_subset: "stenosis"   # which ARCADE subset ("stenosis" or "syntax") supplies detection boxes
   batch_size: 8
   num_workers: 4
 
