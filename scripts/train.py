@@ -94,7 +94,8 @@ def main():
         monitor="val/dice_score",
         mode="max",
         filename="best-arcade-model-{epoch:02d}-{val/dice_score:.4f}",
-        save_top_k=1
+        save_top_k=1,
+        save_last=True
     )
 
     early_stopping = EarlyStopping(
