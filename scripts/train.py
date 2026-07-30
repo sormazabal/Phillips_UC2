@@ -18,6 +18,9 @@ def main():
     parser = argparse.ArgumentParser(description="Train Arcade XCA Dual-Task Model")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
     parser.add_argument("--resume", type=str, default=None, help="Path to .ckpt to resume training from")
+    parser.add_argument("--max_epochs", type=int, default=None, help="Override training.max_epochs from config")
+    parser.add_argument("--limit_train_batches", type=float, default=1.0, help="Fraction/count of train batches per epoch (Lightning passthrough; for quick smoke runs)")
+    parser.add_argument("--limit_val_batches", type=float, default=1.0, help="Fraction/count of val batches per epoch (Lightning passthrough)")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -31,6 +34,12 @@ def main():
     det_classes = model_cfg.get("det_classes", ["coronary_stenosis"])
     det_categories = det_classes if len(det_classes) > 1 else None
 
+    # Optional overrides for non-ARCADE COCO sources (e.g. CathAction); a "{split}"
+    # placeholder in any path is filled in per train/val/test by ArcadeDataset.
+    source_overrides = {
+        k: data_cfg[k] for k in ("img_dir", "seg_ann_file", "det_ann_file", "det_img_dir") if k in data_cfg
+    }
+
     # Datasets & DataLoaders
     train_dataset = ArcadeDataset(
         data_dir=data_cfg.get("data_dir", "./Arcade"),
@@ -38,6 +47,7 @@ def main():
         img_size=tuple(model_cfg.get("img_size", [512, 512])),
         det_ann_subset=data_cfg.get("det_ann_subset", "stenosis"),
         det_categories=det_categories,
+        **source_overrides,
     )
 
     val_dataset = ArcadeDataset(
@@ -46,6 +56,7 @@ def main():
         img_size=tuple(model_cfg.get("img_size", [512, 512])),
         det_ann_subset=data_cfg.get("det_ann_subset", "stenosis"),
         det_categories=det_categories,
+        **source_overrides,
     )
 
     num_workers = data_cfg.get("num_workers", 4)
@@ -93,11 +104,13 @@ def main():
     )
 
     trainer = pl.Trainer(
-        max_epochs=train_cfg.get("max_epochs", 50),
+        max_epochs=args.max_epochs if args.max_epochs is not None else train_cfg.get("max_epochs", 50),
         logger=logger,
         callbacks=[checkpoint_callback, early_stopping],
         accelerator="auto",
-        devices=1
+        devices=1,
+        limit_train_batches=args.limit_train_batches,
+        limit_val_batches=args.limit_val_batches,
     )
 
     # Train model

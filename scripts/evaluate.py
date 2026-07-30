@@ -89,7 +89,10 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
     det_categories = det_classes if len(det_classes) > 1 else None
 
     if checkpoint_path:
-        model = ArcadeLightningModule.load_from_checkpoint(checkpoint_path, config=config).model
+        # ponytail: strict=False -- this checkpoint's saved state_dict is missing the
+        # loss_fn's BCEWithLogitsLoss pos_weight buffer (likely a torch-version quirk
+        # at save time); loss_fn has no learnable weights, so this is safe to skip.
+        model = ArcadeLightningModule.load_from_checkpoint(checkpoint_path, config=config, strict=False).model
     else:
         # Zero-shot: pretrained backbone, randomly initialized task heads.
         model = HFDualNet(
@@ -101,6 +104,10 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
         )
     model.to(device).eval()
 
+    source_overrides = {
+        k: data_cfg[k] for k in ("img_dir", "seg_ann_file", "det_ann_file", "det_img_dir") if k in data_cfg
+    }
+
     img_size = tuple(model_cfg.get("img_size", [512, 512]))
     dataset = ArcadeDataset(
         data_dir=data_cfg["data_dir"],
@@ -108,6 +115,7 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
         img_size=img_size,
         det_ann_subset=data_cfg.get("det_ann_subset", "stenosis"),
         det_categories=det_categories,
+        **source_overrides,
     )
     loader = DataLoader(
         dataset,
@@ -118,20 +126,32 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
     )
 
     dice_scores = []
+    num_seg_images = 0
+    num_det_images = 0
     totals = {k: [0, 0, 0] for k in range(1, len(det_classes) + 1)}
     for batch in loader:
         images = batch["images"].to(device)
         masks = batch["masks"].to(device)
+        has_seg = batch["has_seg"]
+        has_det = batch["has_det"]
         outputs = model(images)
 
-        dice_scores.extend(dice_score(outputs["seg_logits"], masks))
-        stats = match_detections(
-            outputs["det_out"], batch["boxes"], batch["labels"], img_size, conf_thresh, len(det_classes)
-        )
-        for label, (btp, bfp, bfn) in stats.items():
-            totals[label][0] += btp
-            totals[label][1] += bfp
-            totals[label][2] += bfn
+        if has_seg.any():
+            dice_scores.extend(dice_score(outputs["seg_logits"][has_seg], masks[has_seg]))
+            num_seg_images += int(has_seg.sum())
+
+        if has_det.any():
+            det_idx = has_det.nonzero(as_tuple=True)[0].tolist()
+            det_boxes = [batch["boxes"][i] for i in det_idx]
+            det_labels = [batch["labels"][i] for i in det_idx]
+            stats = match_detections(
+                outputs["det_out"][has_det], det_boxes, det_labels, img_size, conf_thresh, len(det_classes)
+            )
+            for label, (btp, bfp, bfn) in stats.items():
+                totals[label][0] += btp
+                totals[label][1] += bfp
+                totals[label][2] += bfn
+            num_det_images += len(det_idx)
 
     per_class = {}
     for label, name in enumerate(det_classes, start=1):
@@ -146,6 +166,8 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
     return {
         "split": split,
         "num_images": len(dataset),
+        "num_seg_images": num_seg_images,
+        "num_det_images": num_det_images,
         "mean_dice_score": sum(dice_scores) / len(dice_scores) if dice_scores else 0.0,
         "detection_precision": macro_p,
         "detection_recall": macro_r,

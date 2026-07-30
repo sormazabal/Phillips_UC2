@@ -30,4 +30,4 @@ training:
 wandb:
   project: "arcade-xca-dual-task"
   entity: null
-  run_id: "1ywutg7r"
+  run_id: null   # was pinned to a pre-fix (syntax/stenosis cross-join) run; start fresh after the fix

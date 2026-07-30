@@ -44,7 +44,12 @@ class ArcadeLightningModule(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def _compute_dice(self, logits, targets, smooth=1e-6):
+    def _compute_dice(self, logits, targets, valid_mask=None, smooth=1e-6):
+        if valid_mask is not None:
+            if valid_mask.sum() == 0:
+                return None
+            logits = logits[valid_mask]
+            targets = targets[valid_mask]
         probs = torch.sigmoid(logits)
         preds = (probs > 0.5).float()
         intersection = (preds * targets).sum(dim=(1, 2, 3))
@@ -57,12 +62,14 @@ class ArcadeLightningModule(pl.LightningModule):
         masks = batch["masks"]
         boxes = batch["boxes"]
         labels = batch["labels"]
+        has_seg = batch["has_seg"]
+        has_det = batch["has_det"]
 
         outputs = self(images)
-        losses = self.loss_fn(outputs, masks, boxes, labels)
+        losses = self.loss_fn(outputs, masks, boxes, labels, has_seg=has_seg, has_det=has_det)
 
         total_loss = losses["total_loss"]
-        seg_dice = self._compute_dice(outputs["seg_logits"], masks)
+        seg_dice = self._compute_dice(outputs["seg_logits"], masks, valid_mask=has_seg)
 
         # Logging metrics
         self.log("train/total_loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -70,7 +77,8 @@ class ArcadeLightningModule(pl.LightningModule):
         self.log("train/bbox_reg_loss", losses["bbox_reg_loss"], on_step=True, on_epoch=True)
         self.log("train/bbox_conf_loss", losses["bbox_conf_loss"], on_step=True, on_epoch=True)
         self.log("train/bbox_cls_loss", losses["bbox_cls_loss"], on_step=True, on_epoch=True)
-        self.log("train/dice_score", seg_dice, on_step=True, on_epoch=True, prog_bar=True)
+        if seg_dice is not None:
+            self.log("train/dice_score", seg_dice, on_step=True, on_epoch=True, prog_bar=True)
 
         return total_loss
 
@@ -79,12 +87,14 @@ class ArcadeLightningModule(pl.LightningModule):
         masks = batch["masks"]
         boxes = batch["boxes"]
         labels = batch["labels"]
+        has_seg = batch["has_seg"]
+        has_det = batch["has_det"]
 
         outputs = self(images)
-        losses = self.loss_fn(outputs, masks, boxes, labels)
+        losses = self.loss_fn(outputs, masks, boxes, labels, has_seg=has_seg, has_det=has_det)
 
         total_loss = losses["total_loss"]
-        seg_dice = self._compute_dice(outputs["seg_logits"], masks)
+        seg_dice = self._compute_dice(outputs["seg_logits"], masks, valid_mask=has_seg)
 
         # Logging metrics
         self.log("val/total_loss", total_loss, on_epoch=True, prog_bar=True)
@@ -92,7 +102,8 @@ class ArcadeLightningModule(pl.LightningModule):
         self.log("val/bbox_reg_loss", losses["bbox_reg_loss"], on_epoch=True)
         self.log("val/bbox_conf_loss", losses["bbox_conf_loss"], on_epoch=True)
         self.log("val/bbox_cls_loss", losses["bbox_cls_loss"], on_epoch=True)
-        self.log("val/dice_score", seg_dice, on_epoch=True, prog_bar=True)
+        if seg_dice is not None:
+            self.log("val/dice_score", seg_dice, on_epoch=True, prog_bar=True)
 
         return total_loss
 

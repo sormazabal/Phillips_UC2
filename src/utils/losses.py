@@ -11,9 +11,16 @@ class DiceBCELoss(nn.Module):
         super().__init__()
         self.smooth = smooth
 
-    def forward(self, logits, targets):
+    def forward(self, logits, targets, valid_mask=None):
         # logits: [B, 1, H, W]
         # targets: [B, 1, H, W]
+        # valid_mask: optional [B] bool -- only these samples actually have segmentation GT
+        if valid_mask is not None:
+            if valid_mask.sum() == 0:
+                return logits.sum() * 0.0
+            logits = logits[valid_mask]
+            targets = targets[valid_mask]
+
         probs = torch.sigmoid(logits)
 
         # Flatten tensors
@@ -45,8 +52,21 @@ class BBoxLoss(nn.Module):
         # Recompute if grid size changes.
         self.conf_bce = nn.BCEWithLogitsLoss(reduction='mean', pos_weight=torch.tensor(pos_weight))
 
-    def forward(self, det_out, targets_boxes, targets_labels):
+    def forward(self, det_out, targets_boxes, targets_labels, valid_mask=None):
         # det_out: [B, 4 + 1 + num_classes, 7, 7]
+        # valid_mask: optional [B] bool -- only these samples actually have detection GT.
+        # Samples without detection GT must be excluded entirely (not treated as
+        # negatives), since "no box" there means "unlabeled for this task", not
+        # "confirmed no stenosis".
+        if valid_mask is not None:
+            if valid_mask.sum() == 0:
+                zero = det_out.sum() * 0.0
+                return zero, zero, zero
+            idx = valid_mask.nonzero(as_tuple=True)[0].tolist()
+            det_out = det_out[valid_mask]
+            targets_boxes = [targets_boxes[i] for i in idx]
+            targets_labels = [targets_labels[i] for i in idx]
+
         B, C, H, W = det_out.shape
 
         pred_boxes = torch.sigmoid(det_out[:, :4, :, :])
@@ -121,15 +141,15 @@ class CombinedDualLoss(nn.Module):
         self.seg_loss_fn = DiceBCELoss()
         self.det_loss_fn = BBoxLoss(num_classes=num_classes, img_size=img_size)
 
-    def forward(self, outputs, target_masks, target_boxes, target_labels):
+    def forward(self, outputs, target_masks, target_boxes, target_labels, has_seg=None, has_det=None):
         seg_logits = outputs["seg_logits"]
         det_out = outputs["det_out"]
 
-        # 1. Segmentation Loss
-        seg_loss = self.seg_loss_fn(seg_logits, target_masks)
+        # 1. Segmentation Loss (only over samples that actually have segmentation GT)
+        seg_loss = self.seg_loss_fn(seg_logits, target_masks, valid_mask=has_seg)
 
-        # 2. BBox Regression, Objectness & Classification Loss
-        bbox_reg_loss, bbox_conf_loss, bbox_cls_loss = self.det_loss_fn(det_out, target_boxes, target_labels)
+        # 2. BBox Regression, Objectness & Classification Loss (only over samples with detection GT)
+        bbox_reg_loss, bbox_conf_loss, bbox_cls_loss = self.det_loss_fn(det_out, target_boxes, target_labels, valid_mask=has_det)
 
         # Total Weighted Loss
         total_loss = (

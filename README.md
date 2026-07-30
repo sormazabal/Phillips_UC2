@@ -43,7 +43,7 @@ Rather than training a model from scratch, this repository leverages pre-trained
     ├── __init__.py
     ├── data/
     │   ├── __init__.py
-    │   └── dataset.py    # PyTorch Dataset parser for ARCADE syntax & stenosis annotations
+    │   └── dataset.py    # PyTorch Dataset parser for ARCADE (or any COCO) syntax/detection annotations, multi-class
     ├── models/
     │   ├── __init__.py
     │   ├── hf_dual_net.py        # Dual-head network with HF SegFormer/ViT backbone
@@ -206,16 +206,20 @@ python scripts/evaluate.py --config config.yaml --split test --checkpoint checkp
 This reports, over the whole split:
 
 - **`mean_dice_score`** — average segmentation Dice score across all test images.
-- **`detection_precision` / `detection_recall` / `detection_f1`** — stenosis detection quality, matching each ground-truth box to the model's prediction in the same grid cell (IoU ≥ 0.3, confidence ≥ `--conf_thresh`).
+- **`detection_precision` / `detection_recall` / `detection_f1`** — macro-averaged across `model.det_classes`. Matches each ground-truth box to the model's prediction in the same grid cell, requiring both IoU ≥ 0.3 and a correct predicted class (confidence ≥ `--conf_thresh`).
+- **`detection_per_class`** — the same precision/recall/F1/tp/fp/fn broken out per class name.
 
 ```json
 {
   "split": "test",
   "num_images": 300,
-  "mean_dice_score": 0.052,
-  "detection_precision": 0.0,
-  "detection_recall": 0.0,
-  "detection_f1": 0.0,
+  "mean_dice_score": 0.6885528723398845,
+  "detection_precision": 0.03225806451612903,
+  "detection_recall": 0.0025906735751295338,
+  "detection_f1": 0.004796163069544365,
+  "detection_per_class": {
+    "coronary_stenosis": {"precision": 0.032, "recall": 0.0026, "f1": 0.0048, "tp": 1, "fp": 30, "fn": 385}
+  },
   "conf_threshold": 0.5
 }
 ```
@@ -231,7 +235,7 @@ Zero-shot example
   ``` 
 
 
-Zero-shot numbers will be low (the task heads are untrained) — this is a baseline to compare against once the model has been fine-tuned. Add `--output_json results.json` to save the report.
+Detection F1 is near zero because of the syntax/stenosis image-id mismatch described in [Extending to device detection](#-extending-to-device-detection) — every training sample pairs a `syntax` image with an unrelated frame's `stenosis` boxes. Segmentation (Dice) is trained on correctly-aligned data and reaches ~0.69 on this checkpoint. Zero-shot numbers will be low (the task heads are untrained) — this is a baseline to compare against once the model has been fine-tuned. Add `--output_json results.json` to save the report.
 
 ---
 
@@ -254,3 +258,35 @@ Upload an XCA image (or point it at a path under `Arcade/`), pick a checkpoint f
 
 - **Vessel Segmentation:** Dice Score $\ge 0.90$
 - **Stenosis Localization:** Mean Average Precision (mAP) $> 0.80$
+
+Note: `evaluate.py`'s detection metric is a same-grid-cell match, not true mAP (no NMS, no IoU-threshold sweep) — treat it as a proxy, not a claim against the mAP target above.
+
+---
+
+## 🩺 Extending to device detection
+
+A Philips brief ("AI-Based Detection and Tracking of Cardiac Interventional Devices") asks for detection, classification, localization, segmentation and temporal tracking of cardiac interventional devices: coronary stents, balloon catheters, guide catheters, guidewires, atherectomy devices, ablation/mapping catheters, pacemaker leads, and prosthetic/transcatheter valves — with per-device landmarks (tips, markers), a device-state label (inflated/deployed/crimped, etc.), and cross-frame tracking IDs.
+
+This pipeline's detection head, loss, dataset loader and inference decoder are multi-class-native (see Configuration above), so adding a device class is a config change given COCO-format boxes for it. **No single public dataset covers the brief's full device list.** What exists:
+
+| Dataset | Device classes | Annotations | License | Notes |
+|---|---|---|---|---|
+| [CathAction](https://huggingface.co/datasets/airvlab/CathAction) ([arXiv 2408.13126](https://arxiv.org/abs/2408.13126)) | catheter, guidewire | ~25k segmentation masks (derive boxes via connected components), collision boxes, action labels | CC-BY-NC-SA-4.0 | Best available multi-device set with masks. Split into 4 independent zips — `segmentation_human_train.zip` alone is 0.14 GB and enough for a PoC; skip the 41.8 GB action zip and 4.35 GB collision zip (wrong label space). |
+| [Guide3D](https://airvlab.github.io/guide3d/) ([arXiv 2410.22224](https://arxiv.org/html/2410.22224v1)) | guidewire (2 types) | curve/segmentation, bi-planar | non-commercial | Useful for guidewire tip landmarks later. |
+| [AngioCAD](https://www.sciencedirect.com/science/article/abs/pii/S0169260726001331) | none (stenosis) | per-artery lesion labels, temporal video | public | Best starting point for the tracking half of the brief — it preserves frame sequences. |
+| ARCADE (this repo) | none (25 SYNTAX segments + stenosis) | COCO boxes/polygons | CC-BY | Used to prove the multi-class refactor (see below); no real devices. |
+
+**Licensing:** CathAction/Guide3D are CC-BY-NC-SA — fine for research/PoC, not for a shipped Philips product. Production would need Philips' own annotated DICOM studies.
+
+**Out of scope in this repo:** temporal tracking, tip/marker keypoints, device-state classification, uncertainty estimation, DICOM sequence ingestion, and real-time latency work — none of the datasets above provide the frame-sequence or state annotations needed, so these remain unimplemented pending a Philips-provided or purpose-built dataset.
+
+**Trying the multi-class refactor on another ARCADE subset:** point detection at ARCADE's `syntax` annotations (25 real SYNTAX segment categories) instead of `stenosis`:
+
+```yaml
+model:
+  det_classes: ["1","2","3","4","5","6","7","8","9","9a","10","10a","11","12","12a","13","14","14a","15","16","16a","16b","16c","12b","14b"]
+data:
+  det_ann_subset: "syntax"
+```
+
+**Known data issue — fixed:** `Arcade/syntax/<split>/images/N.png` and `Arcade/stenosis/<split>/images/N.png` are *different frames* that share the same `file_name`s and image ids 1–1000. `ArcadeDataset` used to index images from the `syntax` file and join detection boxes from `stenosis` onto those same ids, so every training sample paired a syntax image with an unrelated frame's stenosis boxes — the cause of the near-zero detection metrics above. `ArcadeDataset` now builds two independent, self-consistent sample sets — segmentation samples from `syntax` (own images + own polygons) and detection samples from `det_ann_subset` (own images + own boxes) — concatenated into one dataset, each sample tagged `has_seg`/`has_det` so the loss only trains the task it actually has ground truth for. No image is ever paired with another source's labels. Existing checkpoints (e.g. `last_46.ckpt`) were trained before this fix — their detection head learned from mismatched pairs and needs retraining; the segmentation head/backbone remain valid.

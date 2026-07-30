@@ -1,0 +1,30 @@
+model:
+  backbone: "nvidia/mit-b5"
+  backbone_kwargs: null
+  freeze_backbone: true
+  num_seg_classes: 1
+  det_classes: ["device"]   # CathAction's masks are binary (no catheter/guidewire split) -- see scripts/cathaction_to_coco.py
+  img_size: [512, 512]
+
+data:
+  data_dir: "./CathAction/coco"          # unused directly; every path below is overridden
+  det_ann_subset: "cathaction"           # unused (det_ann_file override wins), kept for clarity
+  img_dir: "./CathAction/segmentation_human_train/human_dataset_train/img"
+  seg_ann_file: "./CathAction/coco/annotations/{split}.json"
+  det_ann_file: "./CathAction/coco/annotations/{split}.json"
+  det_img_dir: "./CathAction/segmentation_human_train/human_dataset_train/img"
+  batch_size: 8
+  num_workers: 4
+
+training:
+  max_epochs: 5
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  lambda_seg: 1.0
+  lambda_det: 1.0
+  lambda_cls: 1.0
+
+wandb:
+  project: "cathaction-poc"
+  entity: null
+  run_id: null
