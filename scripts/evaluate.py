@@ -81,7 +81,7 @@ def _prf1(tp, fp, fn):
 
 
 @torch.no_grad()
-def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
+def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test", limit_batches=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_cfg = config.get("model", {})
     data_cfg = config.get("data", {})
@@ -120,7 +120,9 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
     loader = DataLoader(
         dataset,
         batch_size=data_cfg.get("batch_size", 8),
-        shuffle=False,
+        # dataset order is all-seg-samples then all-det-samples (see ArcadeDataset);
+        # shuffle when limiting batches so a partial run still sees both.
+        shuffle=limit_batches is not None,
         num_workers=0,
         collate_fn=collate_fn,
     )
@@ -129,7 +131,9 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test"):
     num_seg_images = 0
     num_det_images = 0
     totals = {k: [0, 0, 0] for k in range(1, len(det_classes) + 1)}
-    for batch in loader:
+    for batch_idx, batch in enumerate(loader):
+        if limit_batches is not None and batch_idx >= limit_batches:
+            break
         images = batch["images"].to(device)
         masks = batch["masks"].to(device)
         has_seg = batch["has_seg"]
@@ -184,12 +188,13 @@ def main():
     parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     parser.add_argument("--conf_thresh", type=float, default=0.5)
     parser.add_argument("--output_json", type=str, default=None)
+    parser.add_argument("--limit_batches", type=int, default=None, help="Only evaluate this many batches (quick/partial check)")
     args = parser.parse_args()
 
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
-    results = evaluate(config, checkpoint_path=args.checkpoint, conf_thresh=args.conf_thresh, split=args.split)
+    results = evaluate(config, checkpoint_path=args.checkpoint, conf_thresh=args.conf_thresh, split=args.split, limit_batches=args.limit_batches)
     print(json.dumps(results, indent=2))
 
     if args.output_json:
