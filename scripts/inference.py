@@ -47,7 +47,9 @@ def load_model(checkpoint_path: str = None, backbone_name: str = "nvidia/mit-b5"
     det_classes = det_classes or DEFAULT_DET_CLASSES
 
     if checkpoint_path and os.path.exists(checkpoint_path):
-        lightning_model = ArcadeLightningModule.load_from_checkpoint(checkpoint_path)
+        # ponytail: strict=False — only lightning_model.model is used here, so a loss_fn
+        # buffer mismatch (e.g. pos_weight added after older checkpoints were saved) is harmless.
+        lightning_model = ArcadeLightningModule.load_from_checkpoint(checkpoint_path, strict=False)
         model = lightning_model.model
         det_classes = lightning_model.config.get("model", {}).get("det_classes", det_classes)
     else:
