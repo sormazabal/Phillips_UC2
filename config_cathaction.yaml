@@ -1,7 +1,7 @@
 model:
-  backbone: "nvidia/mit-b5"
+  backbone: "nvidia/mit-b2"   # was mit-b5 -- 24M vs 81M params, fits 8GB VRAM when unfrozen
   backbone_kwargs: null
-  freeze_backbone: true
+  freeze_backbone: false      # was true -- frozen backbone was the reason dice plateaued at ~0.4
   num_seg_classes: 1
   det_classes: ["device"]   # CathAction's masks are binary (no catheter/guidewire split) -- see scripts/cathaction_to_coco.py
   img_size: [512, 512]
@@ -13,16 +13,17 @@ data:
   seg_ann_file: "./CathAction/coco/annotations/{split}.json"
   det_ann_file: "./CathAction/coco/annotations/{split}.json"
   det_img_dir: "./CathAction/segmentation_human_train/human_dataset_train/img"
-  batch_size: 8
+  batch_size: 2              # was 8 -- unfrozen encoder needs the headroom on 8GB; train.py accumulates x4 for effective batch 8
   num_workers: 4
 
 training:
-  max_epochs: 5
-  learning_rate: 0.0001
+  max_epochs: 40              # was 5 -- prior run stopped mid-climb (0.05 -> 0.40 monotonic)
+  learning_rate: 0.0003       # was 1e-4 -- too timid for a freshly-unfrozen encoder + head
   weight_decay: 0.01
   lambda_seg: 1.0
   lambda_det: 1.0
   lambda_cls: 1.0
+  seg_pos_weight: 20.0        # measured fg pixel fraction 0.98% (~101:1); capped at 20 to avoid FP blowout
 
 wandb:
   project: "cathaction-poc"

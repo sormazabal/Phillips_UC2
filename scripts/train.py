@@ -4,6 +4,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Must be set before `import torch` -- reduces allocator fragmentation, which is a common
+# cause of OOM well before the GPU is actually full on long unfrozen-encoder runs.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 import yaml
 from torch.utils.data import DataLoader
@@ -28,7 +32,10 @@ def main():
         config = yaml.safe_load(f)
 
     if torch.cuda.is_available():
-        torch.cuda.set_per_process_memory_fraction(0.9)
+        # Headroom below 1.0 so the allocator raises a catchable OOM instead of the
+        # driver/other processes on the box getting starved -- important on an unattended
+        # remote run with no one there to intervene.
+        torch.cuda.set_per_process_memory_fraction(0.85)
 
     data_cfg = config.get("data", {})
     train_cfg = config.get("training", {})
@@ -95,9 +102,12 @@ def main():
     )
 
     checkpoint_callback = ModelCheckpoint(
+        # A "/" inside a Lightning filename placeholder is not substituted -- it's read as a
+        # literal path separator, so the old "{val/dice_score:.4f}" template silently wrote
+        # into a nested "val/" subdirectory instead of encoding the metric in the filename.
         monitor="val/dice_score",
         mode="max",
-        filename="best-arcade-model-{epoch:02d}-{val/dice_score:.4f}",
+        filename="best-model-{epoch:02d}",
         save_top_k=1,
         save_last=True
     )
@@ -114,6 +124,9 @@ def main():
         callbacks=[checkpoint_callback, early_stopping],
         accelerator="auto",
         devices=1,
+        precision="16-mixed",
+        accumulate_grad_batches=4,  # batch_size 2 x 4 = effective batch 8
+        gradient_clip_val=1.0,
         limit_train_batches=args.limit_train_batches,
         limit_val_batches=args.limit_val_batches,
     )

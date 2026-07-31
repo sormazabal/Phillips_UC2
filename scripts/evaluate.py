@@ -14,8 +14,8 @@ from src.models.hf_dual_net import HFDualNet
 from src.models.lightning_module import ArcadeLightningModule
 
 
-def dice_score(logits, targets, smooth=1e-6):
-    preds = (torch.sigmoid(logits) > 0.5).float()
+def dice_score(logits, targets, smooth=1e-6, thresh=0.5):
+    preds = (torch.sigmoid(logits) > thresh).float()
     intersection = (preds * targets).sum(dim=(1, 2, 3))
     union = preds.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3))
     return ((2.0 * intersection + smooth) / (union + smooth)).tolist()
@@ -81,7 +81,7 @@ def _prf1(tp, fp, fn):
 
 
 @torch.no_grad()
-def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test", limit_batches=None):
+def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test", limit_batches=None, seg_thresh=0.5):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_cfg = config.get("model", {})
     data_cfg = config.get("data", {})
@@ -141,7 +141,7 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test", limit_
         outputs = model(images)
 
         if has_seg.any():
-            dice_scores.extend(dice_score(outputs["seg_logits"][has_seg], masks[has_seg]))
+            dice_scores.extend(dice_score(outputs["seg_logits"][has_seg], masks[has_seg], thresh=seg_thresh))
             num_seg_images += int(has_seg.sum())
 
         if has_det.any():
@@ -178,6 +178,7 @@ def evaluate(config, checkpoint_path=None, conf_thresh=0.5, split="test", limit_
         "detection_f1": macro_f1,
         "detection_per_class": per_class,
         "conf_threshold": conf_thresh,
+        "seg_threshold": seg_thresh,
     }
 
 
@@ -187,6 +188,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, default=None, help="Optional .ckpt; omit for zero-shot pretrained backbone")
     parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     parser.add_argument("--conf_thresh", type=float, default=0.5)
+    parser.add_argument("--seg_thresh", type=float, default=0.5, help="Sigmoid threshold for segmentation dice")
     parser.add_argument("--output_json", type=str, default=None)
     parser.add_argument("--limit_batches", type=int, default=None, help="Only evaluate this many batches (quick/partial check)")
     args = parser.parse_args()
@@ -194,7 +196,7 @@ def main():
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
-    results = evaluate(config, checkpoint_path=args.checkpoint, conf_thresh=args.conf_thresh, split=args.split, limit_batches=args.limit_batches)
+    results = evaluate(config, checkpoint_path=args.checkpoint, conf_thresh=args.conf_thresh, split=args.split, limit_batches=args.limit_batches, seg_thresh=args.seg_thresh)
     print(json.dumps(results, indent=2))
 
     if args.output_json:

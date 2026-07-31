@@ -7,9 +7,15 @@ class DiceBCELoss(nn.Module):
     """
     Combined Binary Cross Entropy (BCE) and Dice Loss for Semantic Segmentation.
     """
-    def __init__(self, smooth=1e-6):
+    def __init__(self, smooth=1e-6, pos_weight=None):
         super().__init__()
         self.smooth = smooth
+        # pos_weight: upweights foreground pixels in the BCE term. Segmentation targets here
+        # (vessels, catheters) are typically <2% foreground, so unweighted BCE rewards
+        # predicting all-background.
+        self.register_buffer(
+            "pos_weight", torch.tensor(pos_weight) if pos_weight is not None else None
+        )
 
     def forward(self, logits, targets, valid_mask=None):
         # logits: [B, 1, H, W]
@@ -24,11 +30,12 @@ class DiceBCELoss(nn.Module):
         probs = torch.sigmoid(logits)
 
         # Flatten tensors
+        logits_flat = logits.view(-1)
         probs_flat = probs.view(-1)
         targets_flat = targets.view(-1)
 
-        # BCE Loss
-        bce_loss = F.binary_cross_entropy(probs_flat, targets_flat)
+        # BCE Loss (computed from logits for numerical stability + optional pos_weight)
+        bce_loss = F.binary_cross_entropy_with_logits(logits_flat, targets_flat, pos_weight=self.pos_weight)
 
         # Dice Loss
         intersection = (probs_flat * targets_flat).sum()
@@ -131,6 +138,7 @@ class CombinedDualLoss(nn.Module):
         lambda_conf: float = 1.0,
         num_classes: int = 1,
         img_size: float = 512.0,
+        seg_pos_weight: float = None,
     ):
         super().__init__()
         self.lambda_seg = lambda_seg
@@ -138,7 +146,7 @@ class CombinedDualLoss(nn.Module):
         self.lambda_cls = lambda_cls
         self.lambda_conf = lambda_conf
 
-        self.seg_loss_fn = DiceBCELoss()
+        self.seg_loss_fn = DiceBCELoss(pos_weight=seg_pos_weight)
         self.det_loss_fn = BBoxLoss(num_classes=num_classes, img_size=img_size)
 
     def forward(self, outputs, target_masks, target_boxes, target_labels, has_seg=None, has_det=None):
@@ -206,3 +214,12 @@ if __name__ == "__main__":
     assert cls_correct.item() < cls_wrong.item(), "cls_loss did not favor correct-class logits"
     assert det_out_correct.shape == (2, 8, 7, 7)
     print("OK: K=3 cls_loss favors correct-class logits", cls_correct.item(), "vs", cls_wrong.item())
+
+    # Self-check: pos_weight on a sparse target must raise the loss (foreground errors cost more).
+    sparse_logits = torch.zeros(1, 1, 8, 8)  # all-background prediction
+    sparse_target = torch.zeros(1, 1, 8, 8)
+    sparse_target[0, 0, 0, 0] = 1.0  # single foreground pixel, missed
+    loss_unweighted = DiceBCELoss(pos_weight=None)(sparse_logits, sparse_target)
+    loss_weighted = DiceBCELoss(pos_weight=20.0)(sparse_logits, sparse_target)
+    assert loss_weighted.item() > loss_unweighted.item(), "pos_weight had no effect on DiceBCELoss"
+    print("OK: pos_weight raises DiceBCELoss on missed foreground", loss_unweighted.item(), "vs", loss_weighted.item())

@@ -39,6 +39,7 @@ class ArcadeLightningModule(pl.LightningModule):
             lambda_conf=train_cfg.get("lambda_conf", 1.0),
             num_classes=len(det_classes),
             img_size=float(img_size[1]),
+            seg_pos_weight=train_cfg.get("seg_pos_weight"),
         )
 
     def forward(self, x):
@@ -57,61 +58,84 @@ class ArcadeLightningModule(pl.LightningModule):
         dice = (2.0 * intersection + smooth) / (union + smooth)
         return dice.mean()
 
+    @staticmethod
+    def _is_oom(exc: RuntimeError) -> bool:
+        return "out of memory" in str(exc).lower()
+
     def training_step(self, batch, batch_idx):
-        images = batch["images"]
-        masks = batch["masks"]
-        boxes = batch["boxes"]
-        labels = batch["labels"]
-        has_seg = batch["has_seg"]
-        has_det = batch["has_det"]
+        try:
+            images = batch["images"]
+            masks = batch["masks"]
+            boxes = batch["boxes"]
+            labels = batch["labels"]
+            has_seg = batch["has_seg"]
+            has_det = batch["has_det"]
 
-        outputs = self(images)
-        losses = self.loss_fn(outputs, masks, boxes, labels, has_seg=has_seg, has_det=has_det)
+            outputs = self(images)
+            losses = self.loss_fn(outputs, masks, boxes, labels, has_seg=has_seg, has_det=has_det)
 
-        total_loss = losses["total_loss"]
-        seg_dice = self._compute_dice(outputs["seg_logits"], masks, valid_mask=has_seg)
+            total_loss = losses["total_loss"]
+            seg_dice = self._compute_dice(outputs["seg_logits"], masks, valid_mask=has_seg)
 
-        # Logging metrics
-        self.log("train/total_loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log("train/seg_loss", losses["seg_loss"], on_step=True, on_epoch=True)
-        self.log("train/bbox_reg_loss", losses["bbox_reg_loss"], on_step=True, on_epoch=True)
-        self.log("train/bbox_conf_loss", losses["bbox_conf_loss"], on_step=True, on_epoch=True)
-        self.log("train/bbox_cls_loss", losses["bbox_cls_loss"], on_step=True, on_epoch=True)
-        if seg_dice is not None:
-            self.log("train/dice_score", seg_dice, on_step=True, on_epoch=True, prog_bar=True)
+            # Logging metrics
+            self.log("train/total_loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
+            self.log("train/seg_loss", losses["seg_loss"], on_step=True, on_epoch=True)
+            self.log("train/bbox_reg_loss", losses["bbox_reg_loss"], on_step=True, on_epoch=True)
+            self.log("train/bbox_conf_loss", losses["bbox_conf_loss"], on_step=True, on_epoch=True)
+            self.log("train/bbox_cls_loss", losses["bbox_cls_loss"], on_step=True, on_epoch=True)
+            if seg_dice is not None:
+                self.log("train/dice_score", seg_dice, on_step=True, on_epoch=True, prog_bar=True)
 
-        return total_loss
+            return total_loss
+        except RuntimeError as e:
+            if not self._is_oom(e):
+                raise
+            # ponytail: single-batch OOM on an unattended run must not kill the whole
+            # job -- drop this batch, free the fragment, keep training. Recurring OOMs
+            # still show up as repeated warnings in the log for follow-up.
+            torch.cuda.empty_cache()
+            self.print(f"[OOM] skipped train batch {batch_idx}: {e}")
+            return None
 
     def validation_step(self, batch, batch_idx):
-        images = batch["images"]
-        masks = batch["masks"]
-        boxes = batch["boxes"]
-        labels = batch["labels"]
-        has_seg = batch["has_seg"]
-        has_det = batch["has_det"]
+        try:
+            images = batch["images"]
+            masks = batch["masks"]
+            boxes = batch["boxes"]
+            labels = batch["labels"]
+            has_seg = batch["has_seg"]
+            has_det = batch["has_det"]
 
-        outputs = self(images)
-        losses = self.loss_fn(outputs, masks, boxes, labels, has_seg=has_seg, has_det=has_det)
+            outputs = self(images)
+            losses = self.loss_fn(outputs, masks, boxes, labels, has_seg=has_seg, has_det=has_det)
 
-        total_loss = losses["total_loss"]
-        seg_dice = self._compute_dice(outputs["seg_logits"], masks, valid_mask=has_seg)
+            total_loss = losses["total_loss"]
+            seg_dice = self._compute_dice(outputs["seg_logits"], masks, valid_mask=has_seg)
 
-        # Logging metrics
-        self.log("val/total_loss", total_loss, on_epoch=True, prog_bar=True)
-        self.log("val/seg_loss", losses["seg_loss"], on_epoch=True)
-        self.log("val/bbox_reg_loss", losses["bbox_reg_loss"], on_epoch=True)
-        self.log("val/bbox_conf_loss", losses["bbox_conf_loss"], on_epoch=True)
-        self.log("val/bbox_cls_loss", losses["bbox_cls_loss"], on_epoch=True)
-        if seg_dice is not None:
-            self.log("val/dice_score", seg_dice, on_epoch=True, prog_bar=True)
+            # Logging metrics
+            self.log("val/total_loss", total_loss, on_epoch=True, prog_bar=True)
+            self.log("val/seg_loss", losses["seg_loss"], on_epoch=True)
+            self.log("val/bbox_reg_loss", losses["bbox_reg_loss"], on_epoch=True)
+            self.log("val/bbox_conf_loss", losses["bbox_conf_loss"], on_epoch=True)
+            self.log("val/bbox_cls_loss", losses["bbox_cls_loss"], on_epoch=True)
+            if seg_dice is not None:
+                self.log("val/dice_score", seg_dice, on_epoch=True, prog_bar=True)
 
-        return total_loss
+            return total_loss
+        except RuntimeError as e:
+            if not self._is_oom(e):
+                raise
+            torch.cuda.empty_cache()
+            self.print(f"[OOM] skipped val batch {batch_idx}: {e}")
+            return None
 
     def configure_optimizers(self):
         train_cfg = self.config.get("training", {})
         lr = float(train_cfg.get("learning_rate", 1e-4))
         weight_decay = float(train_cfg.get("weight_decay", 1e-2))
-        max_epochs = train_cfg.get("max_epochs", 50)
+        # self.trainer.max_epochs reflects a CLI --max_epochs override; the config value
+        # is only a fallback for when this module is built without a Trainer attached.
+        max_epochs = self.trainer.max_epochs if self.trainer is not None else train_cfg.get("max_epochs", 50)
 
         # Fine-tuning optimizer: different learning rates for backbone vs heads if unfrozen
         optimizer = AdamW(
@@ -129,3 +153,13 @@ class ArcadeLightningModule(pl.LightningModule):
                 "interval": "epoch"
             }
         }
+
+
+if __name__ == "__main__":
+    # Self-check: the OOM-skip guard must only catch actual OOM errors and let
+    # every other RuntimeError propagate -- a broad except here would hide real bugs.
+    assert ArcadeLightningModule._is_oom(RuntimeError("CUDA out of memory. Tried to allocate..."))
+    assert ArcadeLightningModule._is_oom(RuntimeError("CUDA error: out of memory"))
+    assert not ArcadeLightningModule._is_oom(RuntimeError("size mismatch"))
+    assert not ArcadeLightningModule._is_oom(RuntimeError("index out of bounds"))
+    print("OK: _is_oom distinguishes OOM RuntimeErrors from other RuntimeErrors")
