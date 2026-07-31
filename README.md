@@ -280,6 +280,29 @@ This pipeline's detection head, loss, dataset loader and inference decoder are m
 
 **CathAction PoC — pipeline proven, no model-quality claim.** `scripts/cathaction_to_coco.py` converts CathAction's `img`/binary-`mask` pairs into per-split COCO json (split 80/10/10 by video sequence, boxes from contour detection), and `config_cathaction.yaml` points `ArcadeDataset` at it via `img_dir`/`seg_ann_file`/`det_ann_file`/`det_img_dir` overrides — the same `det_ann_subset`-as-second-source mechanism already used for the SYNTAX multi-class test above, plus a `det_img_dir` override (new) since CathAction's seg and det samples share one image folder. A CPU-only smoke run (1 epoch, 200 train images, frozen backbone) evaluated on a slice of the real test set: `mean_dice_score: 0.022`, `detection_f1: 0.008` (tp=6, fp=1437, fn=73) — far below the brief's ≥90% mAP / ≥95% classification-accuracy targets, as expected from ~200 training images. This confirms the converter → dataset → training → per-class-eval path works end-to-end on real device data; a real accuracy number needs a full run (all ~4k train images, more epochs, partial backbone unfreezing) on a GPU.
 
+**Getting the CathAction PoC data on another machine (e.g. your GPU server):**
+
+```bash
+# 1. Download (137 MB, CC-BY-NC-SA-4.0 — research/PoC only, don't redistribute).
+#    Not gated on HF, no auth token needed.
+mkdir -p CathAction
+curl -L -o CathAction/segmentation_human_train.zip \
+  https://huggingface.co/datasets/airvlab/CathAction/resolve/main/segmentation_human_train.zip
+
+# 2. Unzip -- yields CathAction/segmentation_human_train/human_dataset_train/{img,mask}/
+unzip CathAction/segmentation_human_train.zip -d CathAction/segmentation_human_train
+
+# 3. Convert masks -> COCO train/val/test json (writes CathAction/coco/annotations/{split}.json;
+#    images are referenced from the unzipped folder above, not copied)
+python scripts/cathaction_to_coco.py
+
+# 4. Train / evaluate
+python scripts/train.py --config config_cathaction.yaml
+python scripts/evaluate.py --config config_cathaction.yaml --split test
+```
+
+`CathAction/` is gitignored (like `Arcade/`) — it's not meant to be committed. Only the CathAction human-segmentation zip has been verified end-to-end in this repo; the other datasets in the table above (Guide3D, AngioCAD, TCGSeg, CADICA, XCAD) are cited for reference/future work — see their linked pages for access, no converter exists for them here yet.
+
 **Out of scope in this repo:** temporal tracking, tip/marker keypoints, device-state classification, uncertainty estimation, DICOM sequence ingestion, and real-time latency work — none of the datasets above provide the frame-sequence or state annotations needed, so these remain unimplemented pending a Philips-provided or purpose-built dataset.
 
 **Trying the multi-class refactor on another ARCADE subset:** point detection at ARCADE's `syntax` annotations (25 real SYNTAX segment categories) instead of `stenosis`:
