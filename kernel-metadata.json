@@ -1,11 +1,11 @@
 {
   "id": "sofiazowormazabal/kaggle",
   "title": "kaggle",
-  "code_file": "colab_main.ipynb",
+  "code_file": "scripts/train.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": true,
-  "enable_gpu": false,
+  "enable_gpu": true,
   "enable_internet": false,
   "dataset_sources": [],
   "competition_sources": [],

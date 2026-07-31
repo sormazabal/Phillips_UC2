@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--max_epochs", type=int, default=None, help="Override training.max_epochs from config")
     parser.add_argument("--limit_train_batches", type=float, default=1.0, help="Fraction/count of train batches per epoch (Lightning passthrough; for quick smoke runs)")
     parser.add_argument("--limit_val_batches", type=float, default=1.0, help="Fraction/count of val batches per epoch (Lightning passthrough)")
+    parser.add_argument("--checkpoint_dir", type=str, default=None, help="Where to write checkpoints (e.g. a Google Drive path in Colab, so they survive a runtime disconnect)")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -105,6 +106,7 @@ def main():
         # A "/" inside a Lightning filename placeholder is not substituted -- it's read as a
         # literal path separator, so the old "{val/dice_score:.4f}" template silently wrote
         # into a nested "val/" subdirectory instead of encoding the metric in the filename.
+        dirpath=args.checkpoint_dir,
         monitor="val/dice_score",
         mode="max",
         filename="best-model-{epoch:02d}",
