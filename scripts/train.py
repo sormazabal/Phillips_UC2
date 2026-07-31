@@ -4,6 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import torch
 import yaml
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
@@ -25,6 +26,9 @@ def main():
 
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
+
+    if torch.cuda.is_available():
+        torch.cuda.set_per_process_memory_fraction(0.9)
 
     data_cfg = config.get("data", {})
     train_cfg = config.get("training", {})

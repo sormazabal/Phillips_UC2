@@ -1,0 +1,61 @@
+nohup: ignoring input
+Loading weights:   0%|          | 0/1156 [00:00<?, ?it/s]Loading weights: 100%|██████████| 1156/1156 [00:00<00:00, 27662.59it/s]
+[transformers] [1mSegformerModel LOAD REPORT[0m from: nvidia/mit-b5
+Key               | Status     |  | 
+------------------+------------+--+-
+classifier.bias   | UNEXPECTED |  | 
+classifier.weight | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+`Trainer(limit_train_batches=1.0)` was configured so 100% of the batches per epoch will be used..
+`Trainer(limit_val_batches=1.0)` was configured so 100% of the batches will be used..
+wandb: WARNING The anonymous setting has no effect and will be removed in a future version.
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /home/zow/.netrc.
+wandb: Currently logged in as: soa2100 (idssp) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run 7udxh7d4
+wandb: Tracking run with wandb version 0.28.1
+wandb: Run data is saved locally in wandb/run-20260730_232034-7udxh7d4
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run kind-sponge-1
+wandb: ⭐️ View project at https://wandb.ai/idssp/cathaction-poc
+wandb: 🚀 View run at https://wandb.ai/idssp/cathaction-poc/runs/7udxh7d4
+Restoring states from the checkpoint path at cathaction-poc/wgi264al/checkpoints/best-arcade-model-epoch=00-val/dice_score=0.0516.ckpt
+/mnt/Data/Phillips_UC2/.venv/lib/python3.12/site-packages/pytorch_lightning/callbacks/model_checkpoint.py:566: The dirpath has changed from '.\\cathaction-poc\\wgi264al\\checkpoints' to './cathaction-poc/7udxh7d4/checkpoints', therefore `best_model_score`, `kth_best_model_path`, `kth_value`, `last_model_path` and `best_k_models` won't be reloaded. Only `best_model_path` will be reloaded.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name    ┃ Type             ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ model   │ HFDualNet        │ 83.4 M │ train │     0 │
+│ 1 │ loss_fn │ CombinedDualLoss │      0 │ train │     0 │
+└───┴─────────┴──────────────────┴────────┴───────┴───────┘
+Trainable params: 2.0 M                                                         
+Non-trainable params: 81.4 M                                                    
+Total params: 83.4 M                                                            
+Total estimated model params size (MB): 333.781                                 
+Modules in train mode: 28                                                       
+Modules in eval mode: 1057                                                      
+Total FLOPs: 0                                                                  
+Restored all states from the checkpoint at cathaction-poc/wgi264al/checkpoints/best-arcade-model-epoch=00-val/dice_score=0.0516.ckpt
+/mnt/Data/Phillips_UC2/.venv/lib/python3.12/site-packages/pytorch_lightning/utilities/data.py:79: Trying to infer the `batch_size` from an ambiguous collection. The batch size we found is 8. To avoid any miscalculations, use `self.log(..., batch_size=batch_size)`.
+/mnt/Data/Phillips_UC2/.venv/lib/python3.12/site-packages/pytorch_lightning/loops/fit_loop.py:538: Found 1057 module(s) in eval mode at the start of training. This may lead to unexpected behavior during training. If this is intentional, you can ignore this warning.
+/mnt/Data/Phillips_UC2/.venv/lib/python3.12/site-packages/pytorch_lightning/utilities/data.py:79: Trying to infer the `batch_size` from an ambiguous collection. The batch size we found is 4. To avoid any miscalculations, use `self.log(..., batch_size=batch_size)`.
+`Trainer.fit` stopped: `max_epochs=5` reached.
+Epoch 4/4  ━━━━━━━━━━━━━━━━ 993/993 0:05:51 • 0:00:00 2.84it/s v_num: h7d4      
+                                                               train/total_loss…
+                                                               0.851            
+                                                               train/dice_score…
+                                                               0.637            
+                                                               val/total_loss:  
+                                                               0.379            
+                                                               val/dice_score:  
+                                                               0.405            
+                                                               train/total_loss…
+                                                               0.672            
+                                                               train/dice_score…
+                                                               0.563            
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mkind-sponge-1[0m at: [34mhttps://wandb.ai/idssp/cathaction-poc/runs/7udxh7d4[0m
