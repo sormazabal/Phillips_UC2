@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--limit_train_batches", type=float, default=1.0, help="Fraction/count of train batches per epoch (Lightning passthrough; for quick smoke runs)")
     parser.add_argument("--limit_val_batches", type=float, default=1.0, help="Fraction/count of val batches per epoch (Lightning passthrough)")
     parser.add_argument("--checkpoint_dir", type=str, default=None, help="Where to write checkpoints (e.g. a Google Drive path in Colab, so they survive a runtime disconnect)")
+    parser.add_argument("--data_root", type=str, default=None, help="Override the './CathAction' prefix in config data paths (e.g. a Kaggle dataset mount dir)")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -39,14 +40,10 @@ def main():
         torch.cuda.set_per_process_memory_fraction(0.85)
 
     data_cfg = config.get("data", {})
-    if os.path.isdir("/kaggle/input"):
-        # ponytail: hardcoded to this dataset's actual mount path; if the dataset is
-        # re-uploaded under a different owner/slug, update this prefix
+    if args.data_root:
         for key, value in data_cfg.items():
             if isinstance(value, str) and value.startswith("./CathAction"):
-                data_cfg[key] = value.replace(
-                    "./CathAction", "/kaggle/input/datasets/sofiazowormazabal/cathaction", 1
-                )
+                data_cfg[key] = value.replace("./CathAction", args.data_root, 1)
     train_cfg = config.get("training", {})
     wandb_cfg = config.get("wandb", {})
 
