@@ -40,11 +40,13 @@ def main():
 
     data_cfg = config.get("data", {})
     if os.path.isdir("/kaggle/input"):
-        # ponytail: assumes dataset uploaded with its top-level folder named "CathAction";
-        # if that ever changes, update this prefix or the dataset's local path in config_cathaction.yaml
+        # ponytail: hardcoded to this dataset's actual mount path; if the dataset is
+        # re-uploaded under a different owner/slug, update this prefix
         for key, value in data_cfg.items():
             if isinstance(value, str) and value.startswith("./CathAction"):
-                data_cfg[key] = value.replace("./CathAction", "/kaggle/input/cathaction", 1)
+                data_cfg[key] = value.replace(
+                    "./CathAction", "/kaggle/input/datasets/sofiazowormazabal/cathaction", 1
+                )
     train_cfg = config.get("training", {})
     wandb_cfg = config.get("wandb", {})
 
