@@ -1,13 +1,15 @@
 {
-  "id": "sofiazowormazabal/kaggle",
-  "title": "kaggle",
-  "code_file": "scripts/train.py",
+  "id": "sofiazowormazabal/cathaction-smoke-test",
+  "title": "CathAction smoke test",
+  "code_file": "kaggle_cathaction.ipynb",
   "language": "python",
-  "kernel_type": "script",
+  "kernel_type": "notebook",
   "is_private": true,
   "enable_gpu": true,
-  "enable_internet": false,
-  "dataset_sources": ["sofiazowormazabal/cathaction"],
+  "enable_internet": true,
+  "dataset_sources": [
+    "sofiazowormazabal/cathaction"
+  ],
   "competition_sources": [],
   "enable_tpu": false
 }

@@ -128,11 +128,13 @@ def main():
     trainer = pl.Trainer(
         max_epochs=args.max_epochs if args.max_epochs is not None else train_cfg.get("max_epochs", 50),
         logger=logger,
-        callbacks=[checkpoint_callback, early_stopping],
+        # ponytail: `!python` cells have no TTY, so tqdm can't rewrite in place --
+        # a low refresh rate trades live granularity for far fewer reprinted lines.
+        callbacks=[checkpoint_callback, early_stopping, pl.callbacks.TQDMProgressBar(refresh_rate=50)],
         accelerator="auto",
         devices=1,
         precision="16-mixed",
-        accumulate_grad_batches=4,  # batch_size 2 x 4 = effective batch 8
+        accumulate_grad_batches=8,  # batch_size 1 x 8 = effective batch 8
         gradient_clip_val=1.0,
         limit_train_batches=args.limit_train_batches,
         limit_val_batches=args.limit_val_batches,

@@ -13,8 +13,8 @@ data:
   seg_ann_file: "./CathAction/coco/annotations/{split}.json"
   det_ann_file: "./CathAction/coco/annotations/{split}.json"
   det_img_dir: "./CathAction/segmentation_human_train/human_dataset_train/img"
-  batch_size: 2              # was 8 -- unfrozen encoder needs the headroom on 8GB; train.py accumulates x4 for effective batch 8
-  num_workers: 2              # was 4 -- Colab T4 runtime has 2 vCPUs; oversubscribing workers just adds context-switch overhead
+  batch_size: 1              # was 2 -- Kaggle session kept crashing (OOM/CPU); accumulate x8 in train.py for effective batch 8
+  num_workers: 0              # was 2 -- Kaggle session kept crashing; 0 = no worker subprocesses, main process only
 
 training:
   max_epochs: 40              # was 5 -- prior run stopped mid-climb (0.05 -> 0.40 monotonic)
