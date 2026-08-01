@@ -131,7 +131,12 @@ class HFDualNet(nn.Module):
             # ponytail: unfrozen encoder needs backward through every activation;
             # checkpointing trades ~30% more compute for a large activation-memory
             # cut -- the difference between fitting an unfrozen encoder on 8GB or not.
-            self.backbone.gradient_checkpointing_enable()
+            # Some HF backbones (e.g. SegformerModel) expose the method but raise
+            # ValueError since their config lacks gradient checkpointing support.
+            try:
+                self.backbone.gradient_checkpointing_enable()
+            except ValueError:
+                pass
 
     def freeze_backbone(self, freeze: bool = True):
         """Freeze or unfreeze backbone parameters for initial fine-tuning."""
