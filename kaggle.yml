@@ -4,7 +4,7 @@ code_file: scripts/train.py
 accelerator: gpu
 internet: false
 privacy: private
-datasets: []
+datasets: ["sofiazowormazabal/cathaction"]
 competitions: []
 outputs:
   download_to: .kaggle-outputs/

@@ -7,7 +7,7 @@
   "is_private": true,
   "enable_gpu": true,
   "enable_internet": false,
-  "dataset_sources": [],
+  "dataset_sources": ["sofiazowormazabal/cathaction"],
   "competition_sources": [],
   "enable_tpu": false
 }
