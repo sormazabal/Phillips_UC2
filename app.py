@@ -22,7 +22,7 @@ PALETTE = [
 
 with st.sidebar:
     st.header("Model")
-    checkpoints = sorted(glob.glob("checkpoints/*.ckpt"))
+    checkpoints = sorted(glob.glob("checkpoints/**/*.ckpt", recursive=True))
     checkpoint_choice = st.selectbox("Checkpoint", ["(none / zero-shot)"] + checkpoints)
     checkpoint_path = None if checkpoint_choice == "(none / zero-shot)" else checkpoint_choice
 
