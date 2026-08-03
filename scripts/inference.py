@@ -10,6 +10,7 @@ import cv2
 import torch
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from torchvision.ops import nms
 
 from src.models.hf_dual_net import HFDualNet
 from src.models.lightning_module import ArcadeLightningModule
@@ -61,7 +62,8 @@ def load_model(checkpoint_path: str = None, backbone_name: str = "nvidia/mit-b5"
     return model, device
 
 
-def decode_detections(det_out, orig_h: int, orig_w: int, conf_threshold: float = 0.5, det_classes: list = None):
+def decode_detections(det_out, orig_h: int, orig_w: int, conf_threshold: float = 0.5, det_classes: list = None,
+                       iou_threshold: float = 0.5):
     det_classes = det_classes or DEFAULT_DET_CLASSES
     num_classes = len(det_classes)
     B, C, H, W = det_out.shape
@@ -75,6 +77,20 @@ def decode_detections(det_out, orig_h: int, orig_w: int, conf_threshold: float =
 
     # Filter detections above confidence threshold
     high_conf_indices = torch.nonzero(pred_conf > conf_threshold)
+
+    # Suppress duplicate boxes on the same object (adjacent grid cells often both
+    # cross conf_threshold for one physical device) before building device entries.
+    if high_conf_indices.shape[0] > 0:
+        rows, cols = high_conf_indices[:, 0], high_conf_indices[:, 1]
+        scores = pred_conf[rows, cols]
+        boxes_px = torch.stack([
+            pred_boxes[0, rows, cols] * orig_w,
+            pred_boxes[1, rows, cols] * orig_h,
+            pred_boxes[2, rows, cols] * orig_w,
+            pred_boxes[3, rows, cols] * orig_h,
+        ], dim=1)
+        keep = nms(boxes_px, scores, iou_threshold)
+        high_conf_indices = high_conf_indices[keep]
 
     for idx in high_conf_indices:
         r, c = idx[0].item(), idx[1].item()
@@ -126,6 +142,7 @@ def run_inference(
     image_path: str,
     checkpoint_path: str = None,
     conf_threshold: float = 0.5,
+    iou_threshold: float = 0.5,
     backbone_name: str = "nvidia/mit-b5",
     img_size: tuple = (512, 512),
 ):
@@ -138,7 +155,7 @@ def run_inference(
     with torch.no_grad():
         outputs = model(input_tensor)
 
-    devices = decode_detections(outputs["det_out"], orig_h, orig_w, conf_threshold, model.det_classes)
+    devices = decode_detections(outputs["det_out"], orig_h, orig_w, conf_threshold, model.det_classes, iou_threshold)
 
     # Format JSON output according to target schema
     frame_id = os.path.splitext(os.path.basename(image_path))[0]
@@ -158,13 +175,15 @@ def main():
     parser.add_argument("--image_path", type=str, required=True, help="Path to input XCA image")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to trained model checkpoint (.ckpt)")
     parser.add_argument("--conf_thresh", type=float, default=0.5, help="Confidence threshold for stenosis detection")
+    parser.add_argument("--iou_thresh", type=float, default=0.5, help="IoU threshold for NMS (suppresses overlapping duplicate boxes)")
     parser.add_argument("--output_json", type=str, default=None, help="Path to save output JSON file")
     args = parser.parse_args()
 
     result = run_inference(
         image_path=args.image_path,
         checkpoint_path=args.checkpoint,
-        conf_threshold=args.conf_thresh
+        conf_threshold=args.conf_thresh,
+        iou_threshold=args.iou_thresh
     )
 
     json_str = json.dumps(result, indent=2)

@@ -28,12 +28,17 @@ with st.sidebar:
 
     st.header("Thresholds")
     conf_thresh = st.slider("Detection confidence threshold", 0.0, 1.0, 0.5, 0.01)
+    iou_thresh = st.slider("NMS IoU threshold", 0.0, 1.0, 0.5, 0.01)
     mask_thresh = st.slider("Segmentation mask threshold", 0.0, 1.0, 0.5, 0.01)
 
     st.header("Overlays")
     show_mask = st.checkbox("Show segmentation mask", value=True)
     show_contours = st.checkbox("Show vessel boundaries", value=True)
     show_boxes = st.checkbox("Show device/stenosis boxes/landmarks", value=True)
+
+    st.header("Display")
+    brightness = st.slider("Brightness", -100, 100, 0)
+    contrast = st.slider("Contrast", 0.5, 3.0, 1.0, 0.1)
 
     st.header("Manual correction")
     manual_mode = st.toggle("Manual mode")
@@ -109,8 +114,10 @@ raw_image, seg_prob, det_out, orig_h, orig_w = run_inference(
     image_path, os.path.getmtime(image_path), checkpoint_path
 )
 
+display_image = cv2.convertScaleAbs(raw_image, alpha=contrast, beta=brightness)
+
 mask = (seg_prob > mask_thresh).astype(np.uint8)
-devices = decode_detections(torch.from_numpy(det_out), orig_h, orig_w, conf_thresh, model.det_classes)
+devices = decode_detections(torch.from_numpy(det_out), orig_h, orig_w, conf_thresh, model.det_classes, iou_thresh)
 
 colors = class_colors(model.det_classes)
 for d in devices:
@@ -143,7 +150,7 @@ if manual_mode:
     scale = canvas_w / orig_w
     canvas_h = round(orig_h * scale)
 
-    bg = raw_image.copy()
+    bg = display_image.copy()
     colored_mask = np.zeros_like(bg)
     colored_mask[mask == 1] = (255, 0, 0)
     bg = cv2.addWeighted(bg, 1.0, colored_mask, 0.4, 0)
@@ -198,7 +205,7 @@ if manual_mode:
         erase_mask = st.session_state["submitted_erase_mask"]
         mask = ((mask.astype(bool) | add_mask.astype(bool)) & ~erase_mask.astype(bool)).astype(np.uint8)
 
-overlay = raw_image.copy()
+overlay = display_image.copy()
 
 if show_mask:
     colored_mask = np.zeros_like(overlay)
@@ -226,7 +233,7 @@ if show_boxes:
 
 col1, col2 = st.columns(2)
 with col1:
-    st.image(raw_image, caption="Original", use_container_width=True)
+    st.image(display_image, caption="Original", use_container_width=True)
 with col2:
     st.image(overlay, caption="Annotated (mask + boxes)", use_container_width=True)
 
