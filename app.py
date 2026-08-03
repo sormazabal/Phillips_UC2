@@ -20,35 +20,6 @@ st.set_page_config(page_title="ARCADE XCA Dual-Task Viewer", layout="wide")
 st.title("ARCADE XCA Dual-Task Viewer")
 st.caption("Coronary vessel segmentation + device/stenosis localisation")
 
-with st.sidebar:
-    st.header("Model")
-    checkpoints = sorted(glob.glob("checkpoints/**/*.ckpt", recursive=True))
-    checkpoint_choice = st.selectbox("Checkpoint", ["(none / zero-shot)"] + checkpoints)
-    checkpoint_path = None if checkpoint_choice == "(none / zero-shot)" else checkpoint_choice
-
-    st.header("Thresholds")
-    conf_thresh = st.slider("Detection confidence threshold", 0.0, 1.0, 0.5, 0.01)
-    iou_thresh = st.slider("NMS IoU threshold", 0.0, 1.0, 0.5, 0.01)
-    mask_thresh = st.slider("Segmentation mask threshold", 0.0, 1.0, 0.5, 0.01)
-
-    st.header("Overlays")
-    show_mask = st.checkbox("Show segmentation mask", value=True)
-    show_contours = st.checkbox("Show vessel boundaries", value=True)
-    show_boxes = st.checkbox("Show device/stenosis boxes/landmarks", value=True)
-
-    st.header("Display")
-    brightness = st.slider("Brightness", -100, 100, 0)
-    contrast = st.slider("Contrast", 0.5, 3.0, 1.0, 0.1)
-
-    st.header("Manual correction")
-    manual_mode = st.toggle("Manual mode")
-    if manual_mode:
-        tool = st.radio("Tool", ["Move / resize", "New box", "Brush add", "Brush erase"])
-        stroke_width = st.slider("Brush width", 1, 40, 12)
-        reset_clicked = st.button("Reset to AI output")
-    else:
-        tool, stroke_width, reset_clicked = None, None, False
-
 
 @st.cache_resource
 def get_model(ckpt_path):
@@ -70,89 +41,54 @@ def run_inference(image_path, mtime, ckpt_path):
     return raw_image, seg_prob, det_out, orig_h, orig_w
 
 
-st.subheader("Input image")
-uploaded = st.file_uploader("Upload an XCA frame", type=["png", "jpg", "jpeg"])
-manual_path = st.text_input("...or a path under the repo (e.g. Arcade/stenosis/test/images/1.png)")
+with st.sidebar:
+    st.header("Model")
+    checkpoints = sorted(glob.glob("checkpoints/**/*.ckpt", recursive=True))
+    checkpoint_choice = st.selectbox("Checkpoint", ["(none / zero-shot)"] + checkpoints)
+    checkpoint_path = None if checkpoint_choice == "(none / zero-shot)" else checkpoint_choice
 
-image_path = None
+    # Loaded here (not later) so det_classes is available to the widgets below —
+    # every sidebar widget must exist on every rerun or Streamlit re-mounts the page.
+    model, device = get_model(checkpoint_path)
 
-if uploaded is None and st.session_state.get("uploaded_tmp_path"):
-    # Uploader was cleared: drop the tracked tempfile so it doesn't leak.
-    stale = st.session_state.pop("uploaded_tmp_path")
-    st.session_state.pop("uploaded_file_id", None)
-    if os.path.exists(stale):
-        os.unlink(stale)
+    st.header("Thresholds")
+    conf_thresh = st.slider("Detection confidence threshold", 0.0, 1.0, 0.5, 0.01)
+    iou_thresh = st.slider("NMS IoU threshold", 0.0, 1.0, 0.5, 0.01)
+    mask_thresh = st.slider("Segmentation mask threshold", 0.0, 1.0, 0.5, 0.01)
 
-if uploaded is not None:
-    if st.session_state.get("uploaded_file_id") != uploaded.file_id:
-        # Genuinely new upload (Streamlit re-returns the same UploadedFile every rerun,
-        # so this only fires when the user actually picks a new file) — replace, not
-        # append to, the previous tempfile.
-        old_tmp = st.session_state.get("uploaded_tmp_path")
-        if old_tmp and os.path.exists(old_tmp):
-            os.unlink(old_tmp)
-        suffix = os.path.splitext(uploaded.name)[1] or ".png"
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        tmp.write(uploaded.read())
-        tmp.close()
-        st.session_state["uploaded_tmp_path"] = tmp.name
-        st.session_state["uploaded_file_id"] = uploaded.file_id
-    image_path = st.session_state["uploaded_tmp_path"]
-elif manual_path:
-    image_path = manual_path
+    st.header("Overlays")
+    show_mask = st.checkbox("Show segmentation mask", value=True)
+    show_contours = st.checkbox("Show vessel boundaries", value=True)
+    show_boxes = st.checkbox("Show device/stenosis boxes/landmarks", value=True)
 
-if image_path is None:
-    st.info("Upload an image or enter a path to run inference.")
-    st.stop()
+    st.header("Display")
+    brightness = st.slider("Brightness", -100, 100, 0)
+    contrast = st.slider("Contrast", 0.5, 3.0, 1.0, 0.1)
 
-if not os.path.exists(image_path):
-    st.error(f"Image not found: {image_path}")
-    st.stop()
+    st.header("Manual correction")
+    manual_mode = st.toggle("Manual mode")
+    if manual_mode:
+        tool = st.radio("Tool", ["Move / resize", "New box", "Brush add", "Brush erase"])
+        new_box_class = st.selectbox("New box class", model.det_classes)
+        stroke_width = st.slider("Brush width", 1, 40, 12)
+        reset_clicked = st.button("Reset to AI output")
+    else:
+        tool, new_box_class, stroke_width, reset_clicked = None, None, None, False
 
-model, device = get_model(checkpoint_path)
-raw_image, seg_prob, det_out, orig_h, orig_w = run_inference(
-    image_path, os.path.getmtime(image_path), checkpoint_path
-)
 
-display_image = cv2.convertScaleAbs(raw_image, alpha=contrast, beta=brightness)
-
-mask = (seg_prob > mask_thresh).astype(np.uint8)
-devices = decode_detections(torch.from_numpy(det_out), orig_h, orig_w, conf_thresh, model.det_classes, iou_thresh)
-
-colors = class_colors(model.det_classes)
-for d in devices:
-    d["_color"] = colors[d["device_class"]]
-
-new_box_class = None
-if manual_mode and tool == "New box":
-    # Needs model.det_classes, which isn't known until after the model loads,
-    # so this appears after the rest of the "Manual correction" sidebar block.
-    new_box_class = st.sidebar.selectbox("New box class", model.det_classes)
-
-if manual_mode:
-    sig = (image_path, os.path.getmtime(image_path), checkpoint_path)
-    if st.session_state.get("seed_sig") != sig:
-        st.session_state["seed_sig"] = sig
-        st.session_state["seed_devices"] = devices
-        st.session_state["canvas_ver"] = st.session_state.get("canvas_ver", 0) + 1
-        st.session_state["submitted_devices"] = None
-        st.session_state["submitted_add_mask"] = None
-        st.session_state["submitted_erase_mask"] = None
-    if reset_clicked:
-        st.session_state["seed_devices"] = devices
-        st.session_state["canvas_ver"] = st.session_state.get("canvas_ver", 0) + 1
-        st.session_state["submitted_devices"] = None
-        st.session_state["submitted_add_mask"] = None
-        st.session_state["submitted_erase_mask"] = None
-    seed_devices = st.session_state["seed_devices"]
-
+@st.fragment
+def manual_editor(display_image, base_mask, orig_h, orig_w, seed_devices, sig,
+                  tool, new_box_class, stroke_width, colors, det_classes):
+    """Canvas + Submit, isolated in a fragment: st_canvas posts its value back on
+    mount and after every stroke, and without this each post would rerun the whole
+    script and tear down the images above."""
     canvas_w = min(orig_w, 700)
     scale = canvas_w / orig_w
     canvas_h = round(orig_h * scale)
 
     bg = display_image.copy()
     colored_mask = np.zeros_like(bg)
-    colored_mask[mask == 1] = (255, 0, 0)
+    colored_mask[base_mask == 1] = (255, 0, 0)
     bg = cv2.addWeighted(bg, 1.0, colored_mask, 0.4, 0)
     bg_image = Image.fromarray(bg).resize((canvas_w, canvas_h))
 
@@ -190,15 +126,92 @@ if manual_mode:
     if submit_clicked:
         objects = (canvas_result.json_data or {}).get("objects", [])
         st.session_state["submitted_devices"] = fabric_to_devices(
-            objects, scale, seed_devices, model.det_classes, colors
+            objects, scale, seed_devices, det_classes, colors
         )
         add_mask, erase_mask = strokes_to_masks(canvas_result.image_data, orig_h, orig_w)
         st.session_state["submitted_add_mask"] = add_mask
         st.session_state["submitted_erase_mask"] = erase_mask
-        st.success("Corrections submitted.")
+        # scope="app": the overlay and JSON live outside this fragment.
+        st.rerun(scope="app")
 
-    # Preview/export only ever reflect a submitted correction, never in-progress drawing —
-    # this keeps everything below static while the operator is still adjusting the canvas.
+
+st.subheader("Input image")
+uploaded = st.file_uploader("Upload an XCA frame", type=["png", "jpg", "jpeg"])
+manual_path = st.text_input("...or a path under the repo (e.g. Arcade/stenosis/test/images/1.png)")
+
+# Created before the st.stop()s below so the output area is a stable element slot from
+# the very first render, instead of appearing only once inference finishes.
+results = st.container()
+
+image_path = None
+
+if uploaded is None and st.session_state.get("uploaded_tmp_path"):
+    # Uploader was cleared: drop the tracked tempfile so it doesn't leak.
+    stale = st.session_state.pop("uploaded_tmp_path")
+    st.session_state.pop("uploaded_file_id", None)
+    if os.path.exists(stale):
+        os.unlink(stale)
+
+if uploaded is not None:
+    if st.session_state.get("uploaded_file_id") != uploaded.file_id:
+        # Genuinely new upload (Streamlit re-returns the same UploadedFile every rerun,
+        # so this only fires when the user actually picks a new file) — replace, not
+        # append to, the previous tempfile.
+        old_tmp = st.session_state.get("uploaded_tmp_path")
+        if old_tmp and os.path.exists(old_tmp):
+            os.unlink(old_tmp)
+        suffix = os.path.splitext(uploaded.name)[1] or ".png"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp.write(uploaded.read())
+        tmp.close()
+        st.session_state["uploaded_tmp_path"] = tmp.name
+        st.session_state["uploaded_file_id"] = uploaded.file_id
+    image_path = st.session_state["uploaded_tmp_path"]
+elif manual_path:
+    image_path = manual_path
+
+if image_path is None:
+    results.info("Upload an image or enter a path to run inference.")
+    st.stop()
+
+if not os.path.exists(image_path):
+    results.error(f"Image not found: {image_path}")
+    st.stop()
+
+with results, st.spinner("Running inference..."):
+    raw_image, seg_prob, det_out, orig_h, orig_w = run_inference(
+        image_path, os.path.getmtime(image_path), checkpoint_path
+    )
+
+display_image = cv2.convertScaleAbs(raw_image, alpha=contrast, beta=brightness)
+
+mask = (seg_prob > mask_thresh).astype(np.uint8)
+devices = decode_detections(torch.from_numpy(det_out), orig_h, orig_w, conf_thresh, model.det_classes, iou_thresh)
+
+colors = class_colors(model.det_classes)
+for d in devices:
+    d["_color"] = colors[d["device_class"]]
+
+base_mask = mask  # AI mask, used as the canvas background regardless of corrections
+
+if manual_mode:
+    sig = (image_path, os.path.getmtime(image_path), checkpoint_path)
+    if st.session_state.get("seed_sig") != sig:
+        st.session_state["seed_sig"] = sig
+        st.session_state["seed_devices"] = devices
+        st.session_state["canvas_ver"] = st.session_state.get("canvas_ver", 0) + 1
+        st.session_state["submitted_devices"] = None
+        st.session_state["submitted_add_mask"] = None
+        st.session_state["submitted_erase_mask"] = None
+    if reset_clicked:
+        st.session_state["seed_devices"] = devices
+        st.session_state["canvas_ver"] = st.session_state.get("canvas_ver", 0) + 1
+        st.session_state["submitted_devices"] = None
+        st.session_state["submitted_add_mask"] = None
+        st.session_state["submitted_erase_mask"] = None
+    seed_devices = st.session_state["seed_devices"]
+
+    # Preview/export only ever reflect a submitted correction, never in-progress drawing.
     if st.session_state.get("submitted_devices") is not None:
         devices = st.session_state["submitted_devices"]
         add_mask = st.session_state["submitted_add_mask"]
@@ -231,24 +244,31 @@ if show_boxes:
         cv2.putText(overlay, label, (x1, max(0, y1 - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
-col1, col2 = st.columns(2)
-with col1:
-    st.image(display_image, caption="Original", use_container_width=True)
-with col2:
-    st.image(overlay, caption="Annotated (mask + boxes)", use_container_width=True)
-
-st.image(mask * 255, caption="Raw segmentation mask", use_container_width=True, clamp=True)
-
 frame_id = os.path.splitext(os.path.basename(image_path))[0]
 for d in devices:
     d.pop("_color", None)
 edited = manual_mode and st.session_state.get("submitted_devices") is not None
 result_json = {"frame_id": frame_id, "edited": edited, "devices": devices}
-st.subheader("Detections (JSON)")
-st.json(result_json)
-st.download_button(
-    "Download JSON",
-    data=json.dumps(result_json, indent=2),
-    file_name=f"{frame_id}_inference.json",
-    mime="application/json",
-)
+
+with results:
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(display_image, caption="Original", use_container_width=True)
+    with col2:
+        st.image(overlay, caption="Annotated (mask + boxes)", use_container_width=True)
+
+    st.image(mask * 255, caption="Raw segmentation mask", use_container_width=True, clamp=True)
+
+    st.subheader("Detections (JSON)")
+    st.json(result_json)
+    st.download_button(
+        "Download JSON",
+        data=json.dumps(result_json, indent=2),
+        file_name=f"{frame_id}_inference.json",
+        mime="application/json",
+    )
+
+if manual_mode:
+    st.subheader("Manual correction")
+    manual_editor(display_image, base_mask, orig_h, orig_w, seed_devices, sig,
+                  tool, new_box_class, stroke_width, colors, model.det_classes)
